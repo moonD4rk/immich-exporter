@@ -36,9 +36,9 @@ import (
 	"github.com/prometheus/exporter-toolkit/web"
 	webflag "github.com/prometheus/exporter-toolkit/web/kingpinflag"
 
-	"github.com/moonD4rk/immich-exporter/internal/config"
-	"github.com/moonD4rk/immich-exporter/internal/exporter"
-	"github.com/moonD4rk/immich-exporter/internal/immich"
+	"github.com/moond4rk/immich-exporter/internal/config"
+	"github.com/moond4rk/immich-exporter/internal/exporter"
+	"github.com/moond4rk/immich-exporter/internal/immich"
 )
 
 var version = "dev" // overridden at build time via -ldflags "-X main.version=..."

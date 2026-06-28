@@ -1,6 +1,6 @@
 # immich-exporter
 
-[![Go CI](https://github.com/moonD4rk/immich-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/moonD4rk/immich-exporter/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/moonD4rk/immich-exporter/branch/main/graph/badge.svg)](https://codecov.io/gh/moonD4rk/immich-exporter) [![Go Reference](https://pkg.go.dev/badge/github.com/moonD4rk/immich-exporter.svg)](https://pkg.go.dev/github.com/moonD4rk/immich-exporter) [![Go Report Card](https://goreportcard.com/badge/github.com/moonD4rk/immich-exporter)](https://goreportcard.com/report/github.com/moonD4rk/immich-exporter) [![License](https://img.shields.io/github/license/moonD4rk/immich-exporter)](https://github.com/moonD4rk/immich-exporter/blob/main/LICENSE)
+[![Go CI](https://github.com/moond4rk/immich-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/moond4rk/immich-exporter/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/moond4rk/immich-exporter/branch/main/graph/badge.svg)](https://codecov.io/gh/moond4rk/immich-exporter) [![Go Reference](https://pkg.go.dev/badge/github.com/moond4rk/immich-exporter.svg)](https://pkg.go.dev/github.com/moond4rk/immich-exporter) [![Go Report Card](https://goreportcard.com/badge/github.com/moond4rk/immich-exporter)](https://goreportcard.com/report/github.com/moond4rk/immich-exporter) [![License](https://img.shields.io/github/license/moond4rk/immich-exporter)](https://github.com/moond4rk/immich-exporter/blob/main/LICENSE)
 
 A comprehensive Prometheus exporter for **Immich photo-library content** — ~90 metrics covering assets, cameras & EXIF, geography, people & faces, per-user storage & quota, albums & sharing, jobs, and server health. Ships with a large Grafana dashboard (world map included).
 
@@ -28,10 +28,10 @@ Metrics are served at `http://localhost:8000/metrics`. Use an **admin** API key 
 
 ### Binary
 
-Download from the [releases page](https://github.com/moonD4rk/immich-exporter/releases), or install with Go:
+Download from the [releases page](https://github.com/moond4rk/immich-exporter/releases), or install with Go:
 
 ```sh
-go install github.com/moonD4rk/immich-exporter/cmd/immich-exporter@latest
+go install github.com/moond4rk/immich-exporter/cmd/immich-exporter@latest
 IMMICH_HOST=immich-server IMMICH_API_TOKEN=<your-key> immich-exporter
 ```
 

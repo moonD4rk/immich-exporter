@@ -4,7 +4,7 @@
 
 Please **do not** open a public issue for security problems.
 
-Use GitHub's private vulnerability reporting: [**Report a vulnerability**](https://github.com/moonD4rk/immich-exporter/security/advisories/new). You'll get an acknowledgement once the report is triaged, along with a fix or mitigation plan.
+Use GitHub's private vulnerability reporting: [**Report a vulnerability**](https://github.com/moond4rk/immich-exporter/security/advisories/new). You'll get an acknowledgement once the report is triaged, along with a fix or mitigation plan.
 
 ## Notes & scope
 

@@ -1,4 +1,4 @@
-module github.com/moonD4rk/immich-exporter
+module github.com/moond4rk/immich-exporter
 
 go 1.26
 

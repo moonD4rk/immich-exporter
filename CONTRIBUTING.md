@@ -7,7 +7,7 @@ Thanks for taking the time to contribute! This is a small, focused project — a
 You need Go (see the version in [`go.mod`](go.mod)) and, for linting, [golangci-lint](https://golangci-lint.run).
 
 ```sh
-git clone https://github.com/moonD4rk/immich-exporter
+git clone https://github.com/moond4rk/immich-exporter
 cd immich-exporter
 go build ./cmd/immich-exporter
 ```

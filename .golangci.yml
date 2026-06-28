@@ -127,4 +127,4 @@ formatters:
       extra-rules: true
     goimports:
       local-prefixes:
-        - github.com/moonD4rk/immich-exporter
+        - github.com/moond4rk/immich-exporter

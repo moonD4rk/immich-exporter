@@ -11,7 +11,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/moonD4rk/immich-exporter/internal/immich"
+	"github.com/moond4rk/immich-exporter/internal/immich"
 )
 
 func writeJSON(w http.ResponseWriter, v any) {
