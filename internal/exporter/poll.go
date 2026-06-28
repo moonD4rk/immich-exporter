@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/moonD4rk/immich-exporter/internal/immich"
+	"github.com/moond4rk/immich-exporter/internal/immich"
 )
 
 // Config controls what the poller collects and how aggressively.
