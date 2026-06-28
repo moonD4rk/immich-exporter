@@ -1,0 +1,25 @@
+# Codecov: coverage visualization + PR comments only, no enforced CI gates.
+coverage:
+  precision: 2
+  round: down
+  range: 60..90
+
+  status:
+    project:
+      default:
+        target: auto
+        informational: true
+    patch:
+      default:
+        target: auto
+        informational: true
+
+ignore:
+  - "cmd/*/main.go" # wiring/entrypoint, not unit-tested
+
+comment:
+  require_changes: false
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_base: false
+  require_head: true

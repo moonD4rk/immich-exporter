@@ -1,0 +1,63 @@
+# Self-contained monitoring stack: immich-exporter + Prometheus + Grafana, with
+# the dashboard and datasource auto-provisioned. Point it at your running Immich.
+#
+#   1. cp .env.example .env  (or export IMMICH_API_TOKEN)
+#   2. docker compose -f deploy/docker-compose.yml up -d
+#   3. open http://localhost:3000  (admin / admin) -> "Immich Library" dashboard
+#
+# If Immich runs in its own compose project, either set IMMICH_HOST to a
+# reachable host/IP, or attach this stack to the Immich network (see the bottom).
+
+services:
+  immich-exporter:
+    image: ghcr.io/moond4rk/immich-exporter:latest
+    # build: ..            # uncomment to build from source instead of pulling
+    container_name: immich-exporter
+    environment:
+      IMMICH_HOST: ${IMMICH_HOST:-immich-server}
+      IMMICH_PORT: ${IMMICH_PORT:-2283}
+      IMMICH_API_TOKEN: ${IMMICH_API_TOKEN:?set IMMICH_API_TOKEN in .env}
+      SCRAPE_INTERVAL_SECONDS: "120"
+      BREAKDOWN_INTERVAL_SECONDS: "900"
+      # COLLECT_PEOPLE: "true"   # per-person stats (extra API calls)
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: immich-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: immich-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboard.json:/var/lib/grafana/dashboards/immich.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+# To reach an Immich that lives in another compose project, attach this stack to
+# its network and set IMMICH_HOST to the Immich service name:
+#
+# networks:
+#   default:
+#     name: immich_default
+#     external: true

@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in the exporter is wrong or a metric looks off
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report! Please fill in as much as you can.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: input
+    id: exporter-version
+    attributes:
+      label: Exporter version
+      description: From `immich_exporter_build_info`, the image tag, or the startup log line.
+      placeholder: e.g. v0.1.0 / ghcr.io/moond4rk/immich-exporter:latest
+    validations:
+      required: true
+  - type: input
+    id: immich-version
+    attributes:
+      label: Immich server version
+      placeholder: e.g. v1.120.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker
+        - Docker Compose (deploy/docker-compose.yml)
+        - Kubernetes
+        - Binary
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: key-type
+    attributes:
+      label: Is the API key an admin key?
+      description: Check immich_key_is_admin (1 = admin). Many instance-wide metrics need an admin key.
+      options:
+        - "Yes (admin)"
+        - "No (non-admin)"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Exporter logs around the problem. Redact your token/host if needed.
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Non-default configuration
+      description: Any COLLECT_* / interval / TOPN / FANOUT env vars you changed.
+      render: text

@@ -1,0 +1,21 @@
+name: Feature or metric request
+description: Suggest a new metric, label, dashboard panel, or capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe the metric/feature and what you'd use it for.
+    validations:
+      required: true
+  - type: input
+    id: endpoint
+    attributes:
+      label: Immich API source (if known)
+      description: Which Immich API endpoint or field would back this metric?
+      placeholder: e.g. GET /server/statistics → usageByUser
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?

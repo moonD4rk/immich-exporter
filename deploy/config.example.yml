@@ -1,0 +1,36 @@
+# Example immich-exporter configuration.
+# Precedence (low to high): built-in defaults < this file < env vars < flags.
+# Load it with --config.file=config.yml (or the IMMICH_CONFIG_FILE env var).
+# Every key is optional; omitted keys keep their built-in default.
+
+immich:
+  # Either set base_url (must include the /api suffix)...
+  base_url: http://immich-server:2283/api
+  # ...or set host + port instead (the /api suffix is then added automatically):
+  # host: immich-server
+  # port: "2283"
+
+  # The API token is a secret. Prefer the IMMICH_API_TOKEN env var, or point
+  # token_file at a mounted secret. Avoid committing an inline `token:` to git.
+  # token_file: /run/secrets/immich_token
+
+web:
+  listen_address: ":8000"
+  telemetry_path: /metrics
+
+scrape:
+  interval: 2m # cheap-metric poll cadence
+  breakdown_interval: 15m # expensive fan-out (cameras, people) refresh cadence
+  request_timeout: 20s
+
+collect:
+  camera: true
+  geo: true
+  ratings: true
+  people: false # one extra API call per person; off by default
+  heavy: true # duplicates & stacks
+
+limits:
+  topn: 25 # cap model/lens/person/album breakdown series
+  fanout_limit: 200 # skip a breakdown above this many distinct values
+  fanout_concurrency: 8

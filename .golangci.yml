@@ -1,0 +1,130 @@
+# golangci-lint v2 configuration for immich-exporter (Go 1.26).
+version: "2"
+
+run:
+  go: "1.26"
+  timeout: 5m
+  allow-parallel-runners: true
+
+linters:
+  default: none
+  enable:
+    # Default tier
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+
+    # Bug detection
+    - bodyclose
+    - contextcheck
+    - errchkjson
+    - errorlint
+    - gosec
+    - nilerr
+    - noctx
+
+    # Code quality
+    - copyloopvar
+    - dupword
+    - errname
+    - gocritic
+    - misspell
+    - nakedret
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+
+    # Modern Go (1.22+)
+    - intrange
+    - perfsprint
+    - usestdlibvars
+
+    # Complexity
+    - funlen
+    - gocognit
+    - nestif
+
+    # Style
+    - depguard
+    - goprintffuncname
+
+  settings:
+    depguard:
+      rules:
+        blocked:
+          deny:
+            - pkg: github.com/sirupsen/logrus
+              desc: Use log/slog or the standard log package.
+            - pkg: github.com/pkg/errors
+              desc: Use fmt.Errorf with %w and the errors stdlib.
+            - pkg: io/ioutil
+              desc: Deprecated since Go 1.16. Use the io and os packages.
+    errcheck:
+      check-type-assertions: true
+    errorlint:
+      asserts: false
+    funlen:
+      lines: 120
+      statements: 60
+    gocognit:
+      min-complexity: 30
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - singleCaseSwitch
+        - exitAfterDefer
+    govet:
+      enable:
+        - nilness
+        - shadow
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 5
+    nestif:
+      min-complexity: 5
+    revive:
+      rules:
+        - name: indent-error-flow
+        - name: unexported-return
+          disabled: true
+        - name: unused-parameter
+        - name: unused-receiver
+          disabled: true
+
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+      - legacy
+    rules:
+      - path: (.+)_test\.go
+        linters:
+          - dupl
+          - funlen
+          - gocognit
+          - errchkjson
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/moonD4rk/immich-exporter

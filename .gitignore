@@ -1,0 +1,42 @@
+# This repo is tracked via an allowlist: a global core.excludesFile may
+# blanket-ignore every file (the "* + !*/" template), so the "!" rules below
+# re-include exactly what the project ships. On a machine without such a global
+# template these "!" lines are harmless no-ops. The denylist at the end always
+# applies (it overrides the allowlist), so build output, secrets and IDE files
+# stay out of the repo either way.
+
+# --- Allowlist: source & project files ---
+!*.go
+!go.mod
+!go.sum
+!Dockerfile
+!*.md
+!*.json
+!*.yml
+!*.yaml
+!*.example
+!LICENSE
+!.gitignore
+!.dockerignore
+
+# --- Denylist: never track (overrides the allowlist above) ---
+# Compiled binary, test & coverage artifacts
+/immich-exporter
+*.test
+*.out
+coverage.txt
+coverage.html
+# GoReleaser local build output
+/dist/
+# Local secrets / config (may contain a token); committed templates are
+# deploy/.env.example and deploy/config.example.yml
+.env
+deploy/.env
+/config.yml
+/config.yaml
+# IDE / editor cruft
+/.idea/
+.vscode/
+*.iml
+# OS cruft
+.DS_Store
