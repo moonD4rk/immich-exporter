@@ -1,8 +1,14 @@
 name: release
 
+# Manual release: trigger from the Actions tab and type the version (e.g. v1.0.0).
+# The workflow creates and pushes that tag, then builds binaries and the image.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. v1.0.0)"
+        required: true
+        type: string
 
 jobs:
   binaries:
@@ -10,26 +16,42 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Validate version format
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Version '${{ inputs.version }}' must look like v1.2.3 or v1.2.3-rc.1"
+            exit 1
+          fi
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ inputs.version }}"
+          git push origin "${{ inputs.version }}"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ inputs.version }}
 
   image:
+    needs: binaries
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version }}
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -42,8 +64,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
             type=raw,value=latest
       - uses: docker/build-push-action@v7
         with:
