@@ -52,6 +52,11 @@ func fullSnapshot() *snapshot {
 	s.geotagged, s.hasGeotagged = 720, true
 	s.assetsByCountry = map[string]float64{"China": 500, "Japan": 200, "unknown": 20}
 	s.geoCentroids = map[string][2]string{"China": {"31.2", "121.5"}, "Japan": {"35.7", "139.7"}}
+	s.assetsByCity = map[cityKey]float64{
+		{city: "Shanghai", country: "China"}: 450,
+		{city: "unknown", country: "China"}:  50,
+	}
+	s.cityCentroids = map[cityKey][2]string{{city: "Shanghai", country: "China"}: {"31.23", "121.47"}}
 	s.people, s.peopleHidden, s.peopleNamed, s.peopleUnnamed, s.peopleWithBirthdate, s.hasPeople = 40, 2, 25, 15, 5, true
 	s.personAssets = []labeledVal{{"id1", "Alice", 300}, {"id2", "(unnamed)", 120}}
 	s.hasUsers = true
@@ -117,6 +122,8 @@ func TestCollectFullSnapshot(t *testing.T) {
 		`immich_job_queue{queue="smartSearch",state="waiting"} 12`,
 		`immich_user_quota_unlimited{user="admin",user_id="u1"} 1`,
 		`immich_assets_by_country{country="China",lat="31.2",lon="121.5"} 500`,
+		`immich_assets_by_city{city="Shanghai",country="China",lat="31.23",lon="121.47"} 450`,
+		`immich_assets_by_city{city="unknown",country="China",lat="",lon=""} 50`,
 	}
 	out := renderText(t, reg)
 	for _, w := range want {

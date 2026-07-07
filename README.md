@@ -119,7 +119,7 @@ Every series is prefixed `immich_` (plus standard `go_*` / `process_*`). Gauges 
 | Exporter & server health | `immich_exporter_up`, `immich_up`, `immich_server_info`, `immich_server_update_available` |
 | Assets | `immich_assets`, `immich_assets_by_year`, `immich_assets_by_rating`, `immich_assets_favorite` |
 | Cameras & EXIF | `immich_assets_by_camera_make`, `_camera_model`, `_lens` |
-| Geography | `immich_assets_by_country` (with `lat`/`lon`), `immich_assets_geotagged` |
+| Geography | `immich_assets_by_country`, `immich_assets_by_city` (with `lat`/`lon`), `immich_assets_geotagged` |
 | People & users | `immich_people`, `immich_person_assets`, `immich_user_usage_bytes`, `immich_user_quota_bytes` |
 | Albums & sharing | `immich_albums`, `immich_album_top_assets`, `immich_shared_links`, `immich_partners` |
 | Content & jobs | `immich_tags`, `immich_memories`, `immich_duplicate_sets`, `immich_libraries`, `immich_job_queue` |

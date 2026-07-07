@@ -29,6 +29,12 @@ type userStat struct {
 	quotaUnlimited bool
 }
 
+// cityKey identifies a city within a country; city names repeat across
+// countries, so the pair is the aggregation unit.
+type cityKey struct {
+	city, country string
+}
+
 // jobQueueStat is one (queue,state) -> count datapoint plus the paused flag.
 type jobQueueStat struct {
 	queue, state string
@@ -93,6 +99,8 @@ type snapshot struct {
 	hasGeotagged                       bool
 	assetsByCountry                    map[string]float64   // country -> count
 	geoCentroids                       map[string][2]string // country -> [lat, lon] of its assets
+	assetsByCity                       map[cityKey]float64
+	cityCentroids                      map[cityKey][2]string
 
 	// people
 	people, peopleHidden, peopleNamed, peopleUnnamed, peopleWithBirthdate float64
@@ -157,6 +165,8 @@ func newSnapshot() *snapshot {
 		assetsByLens:         map[string]float64{},
 		assetsByCountry:      map[string]float64{},
 		geoCentroids:         map[string][2]string{},
+		assetsByCity:         map[cityKey]float64{},
+		cityCentroids:        map[cityKey][2]string{},
 		usersByStatus:        map[string]float64{},
 		usersByRole:          map[string]float64{},
 		sharedLinks:          map[string]float64{},
@@ -229,6 +239,7 @@ var (
 	dCountries       = desc("places_countries", "Number of distinct countries with assets.")
 	dGeotagged       = desc("assets_geotagged", "Number of geotagged assets (from /map/markers).")
 	dAssetsByCountry = desc("assets_by_country", "Geotagged assets per country. lat/lon = centroid of the country's own assets for a coords-mode geomap (no country-name mapping needed; works for every country).", "country", "lat", "lon")
+	dAssetsByCity    = desc("assets_by_city", "Geotagged assets per city. lat/lon = centroid of the city's own assets for a coords-mode geomap.", "city", "country", "lat", "lon")
 
 	// people
 	dPeople          = desc("people", "Total number of people (including hidden).")
@@ -293,7 +304,7 @@ var allDescs = []*prometheus.Desc{
 	dAssets, dAssetStorage, dServerUsage, dAssetsByYear, dAssetsByRate,
 	dFavorite, dArchived, dHidden, dLocked, dOffline, dMotion, dNotInAlbum, dEncoded, dTrashed,
 	dCameraMakes, dCameraModels, dLenses, dAssetsByMake, dAssetsByModel, dAssetsByLens,
-	dCities, dStates, dCountries, dGeotagged, dAssetsByCountry,
+	dCities, dStates, dCountries, dGeotagged, dAssetsByCountry, dAssetsByCity,
 	dPeople, dPeopleHidden, dPeopleNamed, dPeopleUnnamed, dPeopleBirthdate, dPersonAssets,
 	dUsers, dUsersByRole, dUserPhotos, dUserVideos, dUserUsage, dUserQuota, dUserUnlim,
 	dAlbums, dAlbumsOwned, dAlbumsSharedSt, dAlbumsNotShared, dAlbumAssets, dAlbumsEmpty,
@@ -433,6 +444,13 @@ func emitGeo(ch chan<- prometheus.Metric, s *snapshot) {
 			lat, lon = cc[0], cc[1]
 		}
 		emit(ch, dAssetsByCountry, v, k, lat, lon)
+	}
+	for k, v := range s.assetsByCity {
+		lat, lon := "", ""
+		if cc, ok := s.cityCentroids[k]; ok {
+			lat, lon = cc[0], cc[1]
+		}
+		emit(ch, dAssetsByCity, v, k.city, k.country, lat, lon)
 	}
 }
 
