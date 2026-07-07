@@ -133,10 +133,10 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 	})
 	mux.HandleFunc("GET /map/markers", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []map[string]any{
-			{"country": "China", "lat": 31.0, "lon": 121.0},
-			{"country": "China", "lat": 31.4, "lon": 121.6},
-			{"country": "Japan", "lat": 35.7, "lon": 139.7},
-			{"country": "", "lat": 0.0, "lon": 0.0},
+			{"country": "China", "city": "Shanghai", "lat": 31.0, "lon": 121.0},
+			{"country": "China", "city": "", "lat": 31.4, "lon": 121.6},
+			{"country": "Japan", "city": "Tokyo", "lat": 35.7, "lon": 139.7},
+			{"country": "", "city": "", "lat": 0.0, "lon": 0.0},
 		})
 	})
 	mux.HandleFunc("GET /people", func(w http.ResponseWriter, _ *http.Request) {
@@ -277,6 +277,16 @@ func TestPollAdmin(t *testing.T) {
 	}
 	if _, ok := s.geoCentroids["unknown"]; ok {
 		t.Error("unknown country should have no centroid")
+	}
+	eq("city Shanghai", s.assetsByCity[cityKey{city: "Shanghai", country: "China"}], 1)
+	eq("city unknown/China", s.assetsByCity[cityKey{city: "unknown", country: "China"}], 1)
+	eq("city Tokyo", s.assetsByCity[cityKey{city: "Tokyo", country: "Japan"}], 1)
+	eq("city unknown/unknown", s.assetsByCity[cityKey{city: "unknown", country: "unknown"}], 1)
+	if c := s.cityCentroids[cityKey{city: "Shanghai", country: "China"}]; c[0] != "31.00" || c[1] != "121.00" {
+		t.Errorf("Shanghai centroid = %v, want [31.00 121.00]", c)
+	}
+	if _, ok := s.cityCentroids[cityKey{city: "unknown", country: "China"}]; ok {
+		t.Error("unknown city should have no centroid")
 	}
 	eq("people", s.people, 40)
 	eq("peopleNamed", s.peopleNamed, 2)

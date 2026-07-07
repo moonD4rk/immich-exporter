@@ -490,10 +490,11 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	if countries, err := p.c.Suggest(ctx, "country"); err == nil {
 		s.countries, s.hasCountries = float64(len(countries)), true
 	}
-	// One /map/markers call yields the geotagged total, the per-country split, and
-	// each country's asset centroid (mean lat/lon) for a coords-mode geomap — no
-	// country-name → ISO mapping required.
+	// One /map/markers call yields the geotagged total, the per-country and
+	// per-city splits, and each group's asset centroid (mean lat/lon) for a
+	// coords-mode geomap — no place-name → ISO mapping required.
 	var markers []struct {
+		City    string  `json:"city"`
 		Country string  `json:"country"`
 		Lat     float64 `json:"lat"`
 		Lon     float64 `json:"lon"`
@@ -503,27 +504,49 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	}
 	s.geotagged, s.hasGeotagged = float64(len(markers)), true
 	type acc struct{ sumLat, sumLon, count float64 }
-	agg := map[string]*acc{}
+	countryAgg := map[string]*acc{}
+	cityAgg := map[cityKey]*acc{}
 	for _, m := range markers {
 		country := strings.TrimSpace(m.Country)
 		if country == "" {
 			country = "unknown"
-			s.assetsByCountry[country]++
-			continue
 		}
+		city := strings.TrimSpace(m.City)
+		if city == "" {
+			city = "unknown"
+		}
+		ck := cityKey{city: city, country: country}
 		s.assetsByCountry[country]++
-		a := agg[country]
-		if a == nil {
-			a = &acc{}
-			agg[country] = a
+		s.assetsByCity[ck]++
+		if country != "unknown" {
+			a := countryAgg[country]
+			if a == nil {
+				a = &acc{}
+				countryAgg[country] = a
+			}
+			a.sumLat, a.sumLon, a.count = a.sumLat+m.Lat, a.sumLon+m.Lon, a.count+1
 		}
-		a.sumLat, a.sumLon, a.count = a.sumLat+m.Lat, a.sumLon+m.Lon, a.count+1
+		if city != "unknown" {
+			a := cityAgg[ck]
+			if a == nil {
+				a = &acc{}
+				cityAgg[ck] = a
+			}
+			a.sumLat, a.sumLon, a.count = a.sumLat+m.Lat, a.sumLon+m.Lon, a.count+1
+		}
 	}
-	for country, a := range agg {
+	for country, a := range countryAgg {
 		// Round to ~11 km so the centroid label stays stable as assets are added.
 		lat := strconv.FormatFloat(a.sumLat/a.count, 'f', 1, 64)
 		lon := strconv.FormatFloat(a.sumLon/a.count, 'f', 1, 64)
 		s.geoCentroids[country] = [2]string{lat, lon}
+	}
+	for ck, a := range cityAgg {
+		// ~1.1 km: city clusters are tight, so finer rounding stays stable while
+		// keeping the marker inside the city.
+		lat := strconv.FormatFloat(a.sumLat/a.count, 'f', 2, 64)
+		lon := strconv.FormatFloat(a.sumLon/a.count, 'f', 2, 64)
+		s.cityCentroids[ck] = [2]string{lat, lon}
 	}
 	return nil
 }

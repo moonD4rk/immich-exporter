@@ -1720,6 +1720,163 @@
       }
     },
     {
+      "id": 107,
+      "type": "geomap",
+      "title": "Assets by City (map)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 14,
+        "h": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "immich_assets_by_city{city!=\"unknown\"}",
+          "refId": "A",
+          "legendFormat": "{{city}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "targetField": "lat",
+                "destinationType": "number"
+              },
+              {
+                "targetField": "lon",
+                "destinationType": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "view": {
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 1
+        },
+        "basemap": {
+          "type": "default",
+          "name": "Layer 0"
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": false,
+          "showMeasure": false,
+          "showDebug": false
+        },
+        "tooltip": {
+          "mode": "details"
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Assets by city",
+            "location": {
+              "mode": "coords",
+              "latitude": "lat",
+              "longitude": "lon"
+            },
+            "config": {
+              "showLegend": true,
+              "style": {
+                "size": {
+                  "field": "Value",
+                  "fixed": 5,
+                  "min": 3,
+                  "max": 25
+                },
+                "color": {
+                  "field": "Value"
+                },
+                "opacity": 0.6,
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                }
+              }
+            },
+            "tooltip": true
+          }
+        ]
+      },
+      "description": "Bubble per city at the centroid of that city's own geotagged assets (coords mode). Bubble size/colour = asset count; unknown-city assets are excluded."
+    },
+    {
+      "id": 108,
+      "type": "bargauge",
+      "title": "Top Cities",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 60,
+        "w": 10,
+        "h": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(20, immich_assets_by_city{city!=\"unknown\"})",
+          "refId": "A",
+          "legendFormat": "{{city}}, {{country}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
       "id": 32,
       "type": "stat",
       "title": "Cities",
@@ -1729,7 +1886,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 71,
         "w": 4,
         "h": 4
       },
@@ -1777,7 +1934,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 60,
+        "y": 71,
         "w": 4,
         "h": 4
       },
@@ -1825,7 +1982,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 60,
+        "y": 71,
         "w": 4,
         "h": 4
       },
@@ -1873,7 +2030,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 71,
         "w": 4,
         "h": 4
       },
@@ -1921,7 +2078,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 60,
+        "y": 71,
         "w": 8,
         "h": 4
       },
@@ -1984,7 +2141,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 75,
         "w": 24,
         "h": 1
       },
@@ -2000,7 +2157,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2048,7 +2205,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2100,7 +2257,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2152,7 +2309,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2200,7 +2357,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2248,7 +2405,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 65,
+        "y": 76,
         "w": 4,
         "h": 4
       },
@@ -2314,7 +2471,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 80,
         "w": 12,
         "h": 9
       },
@@ -2378,7 +2535,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 69,
+        "y": 80,
         "w": 12,
         "h": 9
       },
@@ -2432,7 +2589,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 78,
+        "y": 89,
         "w": 24,
         "h": 1
       },
@@ -2448,7 +2605,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2496,7 +2653,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2544,7 +2701,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2596,7 +2753,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2644,7 +2801,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2692,7 +2849,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 79,
+        "y": 90,
         "w": 4,
         "h": 4
       },
@@ -2740,7 +2897,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 83,
+        "y": 94,
         "w": 12,
         "h": 9
       },
@@ -2803,7 +2960,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 83,
+        "y": 94,
         "w": 6,
         "h": 9
       },
@@ -2858,7 +3015,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 83,
+        "y": 94,
         "w": 6,
         "h": 9
       },
@@ -2908,7 +3065,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 92,
+        "y": 103,
         "w": 12,
         "h": 6
       },
@@ -2971,7 +3128,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 98,
+        "y": 109,
         "w": 24,
         "h": 1
       },
@@ -2987,7 +3144,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 99,
+        "y": 110,
         "w": 8,
         "h": 8
       },
@@ -3037,7 +3194,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 99,
+        "y": 110,
         "w": 8,
         "h": 8
       },
@@ -3087,7 +3244,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 99,
+        "y": 110,
         "w": 8,
         "h": 8
       },
@@ -3153,7 +3310,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 107,
+        "y": 118,
         "w": 12,
         "h": 8
       },
@@ -3203,7 +3360,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 107,
+        "y": 118,
         "w": 12,
         "h": 8
       },
@@ -3266,7 +3423,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 115,
+        "y": 126,
         "w": 8,
         "h": 4
       },
@@ -3313,7 +3470,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 115,
+        "y": 126,
         "w": 8,
         "h": 4
       },
@@ -3360,7 +3517,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 115,
+        "y": 126,
         "w": 8,
         "h": 4
       },
@@ -3404,7 +3561,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 119,
+        "y": 130,
         "w": 24,
         "h": 1
       },
@@ -3420,7 +3577,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3468,7 +3625,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3516,7 +3673,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3568,7 +3725,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3620,7 +3777,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3668,7 +3825,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 120,
+        "y": 131,
         "w": 4,
         "h": 4
       },
@@ -3716,7 +3873,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 124,
+        "y": 135,
         "w": 4,
         "h": 4
       },
@@ -3764,7 +3921,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 124,
+        "y": 135,
         "w": 4,
         "h": 4
       },
@@ -3812,7 +3969,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 124,
+        "y": 135,
         "w": 4,
         "h": 4
       },
@@ -3876,7 +4033,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 124,
+        "y": 135,
         "w": 8,
         "h": 4
       },
@@ -3926,7 +4083,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 124,
+        "y": 135,
         "w": 4,
         "h": 4
       },
@@ -3975,7 +4132,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 128,
+        "y": 139,
         "w": 24,
         "h": 1
       },
@@ -3991,7 +4148,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4053,7 +4210,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4115,7 +4272,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4177,7 +4334,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4225,7 +4382,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4293,7 +4450,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 129,
+        "y": 140,
         "w": 4,
         "h": 4
       },
@@ -4361,7 +4518,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 133,
+        "y": 144,
         "w": 12,
         "h": 10
       },
@@ -4429,7 +4586,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 133,
+        "y": 144,
         "w": 12,
         "h": 10
       },
@@ -4480,7 +4637,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 143,
+        "y": 154,
         "w": 12,
         "h": 8
       },
@@ -4543,7 +4700,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 143,
+        "y": 154,
         "w": 12,
         "h": 8
       },
@@ -4588,7 +4745,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 151,
+        "y": 162,
         "w": 24,
         "h": 1
       },
@@ -4604,7 +4761,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 152,
+        "y": 163,
         "w": 6,
         "h": 4
       },
@@ -4652,7 +4809,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 152,
+        "y": 163,
         "w": 6,
         "h": 4
       },
@@ -4700,7 +4857,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 152,
+        "y": 163,
         "w": 6,
         "h": 4
       },
@@ -4748,7 +4905,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 152,
+        "y": 163,
         "w": 6,
         "h": 4
       },
@@ -4809,7 +4966,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 156,
+        "y": 167,
         "w": 16,
         "h": 6
       },
@@ -4870,7 +5027,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 156,
+        "y": 167,
         "w": 8,
         "h": 6
       },
@@ -4930,7 +5087,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 162,
+        "y": 173,
         "w": 24,
         "h": 1
       },
@@ -4946,7 +5103,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -4994,7 +5151,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5042,7 +5199,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5090,7 +5247,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5138,7 +5295,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5186,7 +5343,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 163,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5234,7 +5391,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 167,
+        "y": 178,
         "w": 4,
         "h": 4
       },
@@ -5282,7 +5439,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 167,
+        "y": 178,
         "w": 4,
         "h": 4
       },
@@ -5330,7 +5487,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 167,
+        "y": 178,
         "w": 8,
         "h": 4
       },
@@ -5380,7 +5537,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 167,
+        "y": 178,
         "w": 8,
         "h": 4
       },
