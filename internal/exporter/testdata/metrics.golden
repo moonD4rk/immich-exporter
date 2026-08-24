@@ -1,0 +1,292 @@
+# HELP immich_album_assets Total asset memberships across all albums (assets may repeat).
+# TYPE immich_album_assets gauge
+immich_album_assets 500
+# HELP immich_album_assets_avg Average asset count per album.
+# TYPE immich_album_assets_avg gauge
+immich_album_assets_avg 250
+# HELP immich_album_assets_max Asset count of the largest album.
+# TYPE immich_album_assets_max gauge
+immich_album_assets_max 500
+# HELP immich_album_top_assets Asset count of the top-N largest albums.
+# TYPE immich_album_top_assets gauge
+immich_album_top_assets{album="Family",album_id="a2"} 0
+immich_album_top_assets{album="Trips",album_id="a1"} 500
+# HELP immich_albums Number of albums by sharing state.
+# TYPE immich_albums gauge
+immich_albums{shared="false"} 1
+immich_albums{shared="true"} 1
+# HELP immich_albums_empty Number of albums containing no assets.
+# TYPE immich_albums_empty gauge
+immich_albums_empty 1
+# HELP immich_albums_not_shared Number of private (not shared) albums.
+# TYPE immich_albums_not_shared gauge
+immich_albums_not_shared 1
+# HELP immich_albums_owned Number of albums owned by the API key user.
+# TYPE immich_albums_owned gauge
+immich_albums_owned 2
+# HELP immich_albums_shared Number of albums shared (from /albums/statistics).
+# TYPE immich_albums_shared gauge
+immich_albums_shared 1
+# HELP immich_albums_with_shared_link Number of albums exposing a public shared link.
+# TYPE immich_albums_with_shared_link gauge
+immich_albums_with_shared_link 1
+# HELP immich_api_keys Number of API keys for the key owner.
+# TYPE immich_api_keys gauge
+immich_api_keys 2
+# HELP immich_assets Number of assets by type.
+# TYPE immich_assets gauge
+immich_assets{type="IMAGE"} 1000
+immich_assets{type="VIDEO"} 50
+# HELP immich_assets_archived Number of archived assets.
+# TYPE immich_assets_archived gauge
+immich_assets_archived 5
+# HELP immich_assets_by_camera_make Assets per camera make.
+# TYPE immich_assets_by_camera_make gauge
+immich_assets_by_camera_make{make="Apple"} 800
+immich_assets_by_camera_make{make="Sony"} 200
+# HELP immich_assets_by_camera_model Assets per camera model.
+# TYPE immich_assets_by_camera_model gauge
+immich_assets_by_camera_model{model="A7 IV"} 700
+immich_assets_by_camera_model{model="iPhone 15 Pro"} 700
+# HELP immich_assets_by_city Geotagged assets per city. lat/lon = centroid of the city's own assets for a coords-mode geomap.
+# TYPE immich_assets_by_city gauge
+immich_assets_by_city{city="Shanghai",country="China",lat="31.00",lon="121.00"} 1
+immich_assets_by_city{city="Tokyo",country="Japan",lat="35.70",lon="139.70"} 1
+immich_assets_by_city{city="unknown",country="China",lat="",lon=""} 1
+immich_assets_by_city{city="unknown",country="unknown",lat="",lon=""} 1
+# HELP immich_assets_by_country Geotagged assets per country. lat/lon = centroid of the country's own assets for a coords-mode geomap (no country-name mapping needed; works for every country).
+# TYPE immich_assets_by_country gauge
+immich_assets_by_country{country="China",lat="31.2",lon="121.3"} 2
+immich_assets_by_country{country="Japan",lat="35.7",lon="139.7"} 1
+immich_assets_by_country{country="unknown",lat="",lon=""} 1
+# HELP immich_assets_by_lens Assets per lens model.
+# TYPE immich_assets_by_lens gauge
+immich_assets_by_lens{lens="24mm"} 100
+# HELP immich_assets_by_rating Assets by star rating (1-5, or 'unrated').
+# TYPE immich_assets_by_rating gauge
+immich_assets_by_rating{rating="1"} 1
+immich_assets_by_rating{rating="2"} 2
+immich_assets_by_rating{rating="3"} 3
+immich_assets_by_rating{rating="4"} 4
+immich_assets_by_rating{rating="5"} 5
+immich_assets_by_rating{rating="unrated"} 990
+# HELP immich_assets_by_year Assets taken per calendar year.
+# TYPE immich_assets_by_year gauge
+immich_assets_by_year{year="2023"} 350
+immich_assets_by_year{year="2024"} 700
+# HELP immich_assets_encoded Number of transcoded video assets.
+# TYPE immich_assets_encoded gauge
+immich_assets_encoded 40
+# HELP immich_assets_favorite Number of favourited assets.
+# TYPE immich_assets_favorite gauge
+immich_assets_favorite 12
+# HELP immich_assets_geotagged Number of geotagged assets (from /map/markers).
+# TYPE immich_assets_geotagged gauge
+immich_assets_geotagged 4
+# HELP immich_assets_hidden Number of hidden assets.
+# TYPE immich_assets_hidden gauge
+immich_assets_hidden 1
+# HELP immich_assets_motion Number of motion / live-photo assets.
+# TYPE immich_assets_motion gauge
+immich_assets_motion 30
+# HELP immich_assets_not_in_album Number of assets not assigned to any album.
+# TYPE immich_assets_not_in_album gauge
+immich_assets_not_in_album 400
+# HELP immich_assets_offline Number of offline assets (file missing on disk).
+# TYPE immich_assets_offline gauge
+immich_assets_offline 2
+# HELP immich_assets_storage_bytes Storage used by assets by type, in bytes.
+# TYPE immich_assets_storage_bytes gauge
+immich_assets_storage_bytes{type="IMAGE"} 9000
+immich_assets_storage_bytes{type="VIDEO"} 3000
+# HELP immich_assets_trashed Number of trashed assets.
+# TYPE immich_assets_trashed gauge
+immich_assets_trashed 3
+# HELP immich_camera_makes Number of distinct camera makes in the library.
+# TYPE immich_camera_makes gauge
+immich_camera_makes 2
+# HELP immich_camera_models Number of distinct camera models in the library.
+# TYPE immich_camera_models gauge
+immich_camera_models 2
+# HELP immich_config_trash_days Days assets stay in trash before automatic deletion.
+# TYPE immich_config_trash_days gauge
+immich_config_trash_days 30
+# HELP immich_config_user_delete_delay_days Grace period before a deleted user is purged, in days.
+# TYPE immich_config_user_delete_delay_days gauge
+immich_config_user_delete_delay_days 7
+# HELP immich_duplicate_assets Number of assets involved in duplicate sets.
+# TYPE immich_duplicate_assets gauge
+immich_duplicate_assets 2
+# HELP immich_duplicate_sets Number of duplicate clusters detected.
+# TYPE immich_duplicate_sets gauge
+immich_duplicate_sets 1
+# HELP immich_exporter_build_info Exporter build metadata (value is always 1).
+# TYPE immich_exporter_build_info gauge
+immich_exporter_build_info{goversion="go-golden",version="golden"} 1
+# HELP immich_exporter_last_scrape_duration_seconds Duration of the last Immich poll, in seconds.
+# TYPE immich_exporter_last_scrape_duration_seconds gauge
+immich_exporter_last_scrape_duration_seconds 0.42
+# HELP immich_exporter_last_success_timestamp_seconds Unix time of the last fully-successful poll.
+# TYPE immich_exporter_last_success_timestamp_seconds gauge
+immich_exporter_last_success_timestamp_seconds 1.7e+09
+# HELP immich_exporter_scrape_errors_total Cumulative count of failed Immich API calls.
+# TYPE immich_exporter_scrape_errors_total counter
+immich_exporter_scrape_errors_total 0
+# HELP immich_exporter_up 1 if the last Immich poll fully succeeded.
+# TYPE immich_exporter_up gauge
+immich_exporter_up 1
+# HELP immich_job_queue Jobs in each queue by state.
+# TYPE immich_job_queue gauge
+immich_job_queue{queue="smartSearch",state="active"} 1
+immich_job_queue{queue="smartSearch",state="completed"} 5
+immich_job_queue{queue="smartSearch",state="delayed"} 0
+immich_job_queue{queue="smartSearch",state="failed"} 0
+immich_job_queue{queue="smartSearch",state="paused"} 0
+immich_job_queue{queue="smartSearch",state="waiting"} 12
+immich_job_queue{queue="thumbnailGeneration",state="active"} 0
+immich_job_queue{queue="thumbnailGeneration",state="completed"} 100
+immich_job_queue{queue="thumbnailGeneration",state="delayed"} 0
+immich_job_queue{queue="thumbnailGeneration",state="failed"} 2
+immich_job_queue{queue="thumbnailGeneration",state="paused"} 0
+immich_job_queue{queue="thumbnailGeneration",state="waiting"} 0
+# HELP immich_job_queue_paused 1 if a job queue is paused.
+# TYPE immich_job_queue_paused gauge
+immich_job_queue_paused{queue="smartSearch"} 0
+immich_job_queue_paused{queue="thumbnailGeneration"} 1
+# HELP immich_key_is_admin 1 if the configured API key belongs to an admin user (unlocks instance-wide and job metrics).
+# TYPE immich_key_is_admin gauge
+immich_key_is_admin 1
+# HELP immich_lenses Number of distinct lens models in the library.
+# TYPE immich_lenses gauge
+immich_lenses 1
+# HELP immich_libraries Number of configured external libraries.
+# TYPE immich_libraries gauge
+immich_libraries 1
+# HELP immich_library_assets Assets per external library.
+# TYPE immich_library_assets gauge
+immich_library_assets{library="External",library_id="l1"} 5000
+# HELP immich_memories Number of memories.
+# TYPE immich_memories gauge
+immich_memories 7
+# HELP immich_notifications_by_level Notifications by level.
+# TYPE immich_notifications_by_level gauge
+immich_notifications_by_level{level="error"} 1
+immich_notifications_by_level{level="info"} 1
+# HELP immich_notifications_unread Number of unread notifications.
+# TYPE immich_notifications_unread gauge
+immich_notifications_unread 1
+# HELP immich_partners Number of partner shares by direction (incoming/outgoing).
+# TYPE immich_partners gauge
+immich_partners{direction="incoming"} 1
+immich_partners{direction="outgoing"} 2
+# HELP immich_people Total number of people (including hidden).
+# TYPE immich_people gauge
+immich_people 40
+# HELP immich_people_hidden Number of people marked hidden.
+# TYPE immich_people_hidden gauge
+immich_people_hidden 2
+# HELP immich_people_named Number of named (identified) people.
+# TYPE immich_people_named gauge
+immich_people_named 2
+# HELP immich_people_unnamed Number of unnamed people (detected but unlabelled).
+# TYPE immich_people_unnamed gauge
+immich_people_unnamed 38
+# HELP immich_people_with_birthdate Number of people with a birth date set.
+# TYPE immich_people_with_birthdate gauge
+immich_people_with_birthdate 1
+# HELP immich_person_assets Assets per person (top-N by asset count).
+# TYPE immich_person_assets gauge
+immich_person_assets{person="(unnamed)",person_id="p2"} 10
+immich_person_assets{person="Alice",person_id="p1"} 10
+immich_person_assets{person="Bob",person_id="p3"} 10
+# HELP immich_places_cities Number of distinct cities with assets.
+# TYPE immich_places_cities gauge
+immich_places_cities 3
+# HELP immich_places_countries Number of distinct countries with assets.
+# TYPE immich_places_countries gauge
+immich_places_countries 2
+# HELP immich_places_states Number of distinct states/provinces with assets.
+# TYPE immich_places_states gauge
+immich_places_states 2
+# HELP immich_server_feature Immich server feature flags (1 enabled, 0 disabled).
+# TYPE immich_server_feature gauge
+immich_server_feature{feature="facial_recognition"} 0
+immich_server_feature{feature="smart_search"} 1
+# HELP immich_server_info Immich server version and dependency metadata (value is always 1).
+# TYPE immich_server_info gauge
+immich_server_info{build="",exiftool="",ffmpeg="6.0",imagemagick="",libvips="",nodejs="",source_commit="",source_ref="",version="v1.120.0"} 1
+# HELP immich_server_latest_version_info Latest Immich release available upstream (value is always 1).
+# TYPE immich_server_latest_version_info gauge
+immich_server_latest_version_info{release_version="v1.121.0"} 1
+# HELP immich_server_licensed 1 if the Immich server has an active license.
+# TYPE immich_server_licensed gauge
+immich_server_licensed 1
+# HELP immich_server_onboarded 1 if admin onboarding has completed.
+# TYPE immich_server_onboarded gauge
+immich_server_onboarded 1
+# HELP immich_server_update_available 1 if a newer Immich release is available upstream.
+# TYPE immich_server_update_available gauge
+immich_server_update_available 1
+# HELP immich_server_usage_bytes Total bytes used by all original assets server-wide (admin).
+# TYPE immich_server_usage_bytes gauge
+immich_server_usage_bytes 12000
+# HELP immich_sessions Number of active sessions for the key owner.
+# TYPE immich_sessions gauge
+immich_sessions 1
+# HELP immich_shared_links Number of shared links by type.
+# TYPE immich_shared_links gauge
+immich_shared_links{type="ALBUM"} 1
+immich_shared_links{type="INDIVIDUAL"} 1
+# HELP immich_shared_links_expired Number of expired shared links still present.
+# TYPE immich_shared_links_expired gauge
+immich_shared_links_expired 1
+# HELP immich_shared_links_never_expire Number of shared links with no expiry.
+# TYPE immich_shared_links_never_expire gauge
+immich_shared_links_never_expire 1
+# HELP immich_shared_links_password_protected Number of password-protected shared links.
+# TYPE immich_shared_links_password_protected gauge
+immich_shared_links_password_protected 1
+# HELP immich_stacked_assets Number of assets grouped into stacks.
+# TYPE immich_stacked_assets gauge
+immich_stacked_assets 3
+# HELP immich_stacks Number of asset stacks.
+# TYPE immich_stacks gauge
+immich_stacks 1
+# HELP immich_storage_available_bytes Free bytes on the upload filesystem.
+# TYPE immich_storage_available_bytes gauge
+immich_storage_available_bytes 600
+# HELP immich_storage_size_bytes Total capacity of the filesystem backing the upload location.
+# TYPE immich_storage_size_bytes gauge
+immich_storage_size_bytes 1000
+# HELP immich_storage_used_bytes Used bytes on the upload filesystem (whole volume, not just Immich).
+# TYPE immich_storage_used_bytes gauge
+immich_storage_used_bytes 400
+# HELP immich_tags Number of tags.
+# TYPE immich_tags gauge
+immich_tags 2
+# HELP immich_tags_root Number of top-level (root) tags.
+# TYPE immich_tags_root gauge
+immich_tags_root 1
+# HELP immich_up 1 if the Immich server answered /server/ping.
+# TYPE immich_up gauge
+immich_up 1
+# HELP immich_user_photos Per-user photo count.
+# TYPE immich_user_photos gauge
+immich_user_photos{user="admin",user_id="u1"} 1000
+# HELP immich_user_quota_unlimited 1 if the user has no storage quota (unlimited).
+# TYPE immich_user_quota_unlimited gauge
+immich_user_quota_unlimited{user="admin",user_id="u1"} 1
+# HELP immich_user_usage_bytes Per-user total storage usage, in bytes.
+# TYPE immich_user_usage_bytes gauge
+immich_user_usage_bytes{user="admin",user_id="u1"} 12000
+# HELP immich_user_videos Per-user video count.
+# TYPE immich_user_videos gauge
+immich_user_videos{user="admin",user_id="u1"} 50
+# HELP immich_users Number of users by status.
+# TYPE immich_users gauge
+immich_users{status="active"} 2
+immich_users{status="deleted"} 1
+# HELP immich_users_by_role Number of users by role.
+# TYPE immich_users_by_role gauge
+immich_users_by_role{role="admin"} 1
+immich_users_by_role{role="user"} 2

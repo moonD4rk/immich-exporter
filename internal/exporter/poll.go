@@ -42,10 +42,8 @@ type poller struct {
 
 // breakdownData caches the slow-tier fan-out results between refreshes.
 type breakdownData struct {
-	cameraMakes, cameraModels, lenses          float64
-	hasCameraMakes, hasCameraModels, hasLenses bool
-	assetsByMake, assetsByModel, assetsByLens  map[string]float64
-	personAssets                               []labeledVal
+	cameras      camerasSnap
+	personAssets []labeledVal
 }
 
 type personRef struct {
@@ -82,14 +80,14 @@ func (p *poller) poll(parent context.Context) {
 		slog.Error("collect failed", "section", name, "err", err)
 	}
 	soft := func(name string, err error) {
-		if err == nil || immich.StatusIs(err, 401, 403, 404) {
+		if err == nil || isSoftStatus(err) {
 			return
 		}
 		p.scrapeErrors.Add(1)
 		slog.Warn("optional collect failed", "section", name, "err", err)
 	}
 
-	s.serverUp = boolf(p.serverUp(ctx))
+	s.health.serverUp = boolf(p.serverUp(ctx))
 
 	isAdmin, err := p.collectMe(ctx, s)
 	hard("users/me", err)
@@ -142,12 +140,12 @@ func (p *poller) poll(parent context.Context) {
 		soft("stacks", p.collectStacks(ctx, s))
 	}
 
-	s.scrapeDurationSeconds = time.Since(start).Seconds()
+	s.health.scrapeDurationSeconds = time.Since(start).Seconds()
 	if hardErrs == 0 {
-		s.scrapeSuccess = 1
-		s.lastSuccessUnix = float64(time.Now().Unix())
+		s.health.scrapeSuccess = 1
+		s.health.lastSuccessUnix = float64(time.Now().Unix())
 	} else if prev := p.snap.Load(); prev != nil {
-		s.lastSuccessUnix = prev.lastSuccessUnix // preserve last good timestamp
+		s.health.lastSuccessUnix = prev.health.lastSuccessUnix // preserve last good timestamp
 	}
 	p.snap.Store(s)
 }
@@ -166,7 +164,7 @@ func (p *poller) collectMe(ctx context.Context, s *snapshot) (bool, error) {
 	if err := p.c.Get(ctx, "/users/me", &me); err != nil {
 		return false, err
 	}
-	s.keyIsAdmin = boolf(me.IsAdmin)
+	s.health.keyIsAdmin = boolf(me.IsAdmin)
 	return me.IsAdmin, nil
 }
 
@@ -186,12 +184,12 @@ func (p *poller) collectAbout(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/server/about", &a); err != nil {
 		return err
 	}
-	s.serverInfo = map[string]string{
-		"version": a.Version, "source_ref": a.SourceRef, "source_commit": a.SourceCommit,
-		"build": a.Build, "nodejs": a.Nodejs, "exiftool": a.Exiftool, "ffmpeg": a.Ffmpeg,
-		"imagemagick": a.Imagemagick, "libvips": a.Libvips,
+	s.server.about = aboutInfo{
+		version: a.Version, sourceRef: a.SourceRef, sourceCommit: a.SourceCommit, build: a.Build,
+		nodejs: a.Nodejs, exiftool: a.Exiftool, ffmpeg: a.Ffmpeg, imagemagick: a.Imagemagick,
+		libvips: a.Libvips, ok: true,
 	}
-	s.serverLicensed = boolf(a.Licensed)
+	s.server.licensed = boolf(a.Licensed)
 	return nil
 }
 
@@ -205,10 +203,13 @@ func (p *poller) collectVersionCheck(ctx context.Context, s *snapshot) error {
 	if vc.ReleaseVersion == "" {
 		return nil
 	}
-	s.latestVersion = vc.ReleaseVersion
-	running := s.serverInfo["version"]
-	if running != "" && semver(vc.ReleaseVersion) != semver(running) {
-		s.updateAvail = 1
+	s.server.latestVersion = vc.ReleaseVersion
+	// version-check can lag and report a release OLDER than the running server;
+	// only a strictly newer release counts as an available update.
+	if release, ok := parseSemver(vc.ReleaseVersion); ok {
+		if running, ok := parseSemver(s.server.about.version); ok && semverGreater(release, running) {
+			s.server.updateAvail = 1
+		}
 	}
 	return nil
 }
@@ -219,7 +220,7 @@ func (p *poller) collectFeatures(ctx context.Context, s *snapshot) error {
 		return err
 	}
 	for k, v := range f {
-		s.features[camelToSnake(k)] = boolf(v)
+		s.server.features[camelToSnake(k)] = boolf(v)
 	}
 	return nil
 }
@@ -236,19 +237,19 @@ func (p *poller) collectConfig(ctx context.Context, s *snapshot) error {
 		return err
 	}
 	if c.TrashDays != nil {
-		s.configTrashDays, s.hasConfigTrashDays = *c.TrashDays, true
+		s.server.trashDays = set(*c.TrashDays)
 	}
 	if c.UserDeleteDelay != nil {
-		s.configUserDeleteDelayDays, s.hasConfigDeleteDelay = *c.UserDeleteDelay, true
+		s.server.userDeleteDelayDays = set(*c.UserDeleteDelay)
 	}
 	if c.MinFaces != nil {
-		s.configMinFaces, s.hasConfigMinFaces = *c.MinFaces, true
+		s.server.minFaces = set(*c.MinFaces)
 	}
 	if c.IsInitialized != nil {
-		s.serverInitialized, s.hasInitialized = boolf(*c.IsInitialized), true
+		s.server.initialized = set(boolf(*c.IsInitialized))
 	}
 	if c.IsOnboarded != nil {
-		s.serverOnboarded, s.hasOnboarded = boolf(*c.IsOnboarded), true
+		s.server.onboarded = set(boolf(*c.IsOnboarded))
 	}
 	return nil
 }
@@ -262,8 +263,9 @@ func (p *poller) collectStorage(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/server/storage", &st); err != nil {
 		return err
 	}
-	s.storageSizeBytes, s.storageUsedBytes, s.storageAvailableBytes = st.DiskSizeRaw, st.DiskUseRaw, st.DiskAvailableRaw
-	s.hasStorage = true
+	s.server.storageSizeBytes = set(st.DiskSizeRaw)
+	s.server.storageUsedBytes = set(st.DiskUseRaw)
+	s.server.storageAvailableBytes = set(st.DiskAvailableRaw)
 	return nil
 }
 
@@ -299,7 +301,7 @@ func (p *poller) collectAssets(ctx context.Context, s *snapshot, isAdmin bool) e
 		if err != nil {
 			return err
 		}
-		s.assets[t] = n
+		s.assets.byType[t] = n
 	}
 	return nil
 }
@@ -315,9 +317,9 @@ func (p *poller) collectServerStats(ctx context.Context, s *snapshot) (bool, err
 		}
 		return false, err
 	}
-	s.assets["IMAGE"], s.assets["VIDEO"] = st.Photos, st.Videos
-	s.assetStorage["IMAGE"], s.assetStorage["VIDEO"] = st.UsagePhotos, st.UsageVideos
-	s.serverUsageBytes, s.hasServerUsage = st.Usage, true
+	s.assets.byType["IMAGE"], s.assets.byType["VIDEO"] = st.Photos, st.Videos
+	s.assets.storageByType["IMAGE"], s.assets.storageByType["VIDEO"] = st.UsagePhotos, st.UsageVideos
+	s.assets.serverUsageBytes = set(st.Usage)
 	for _, u := range st.UsageByUser {
 		us := userStat{id: u.UserID, name: u.UserName, photos: u.Photos, videos: u.Videos, usageBytes: u.Usage}
 		if u.QuotaSizeInBytes == nil {
@@ -325,40 +327,45 @@ func (p *poller) collectServerStats(ctx context.Context, s *snapshot) (bool, err
 		} else {
 			us.quotaBytes = *u.QuotaSizeInBytes
 		}
-		s.perUser = append(s.perUser, us)
+		s.users.perUser = append(s.users.perUser, us)
 	}
 	return true, nil
 }
 
 func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
+	a := &s.assets
 	type q struct {
-		v      *float64
-		ok     *bool
+		v      *opt
 		filter map[string]any
 	}
 	checks := []q{
-		{&s.assetsFavorite, &s.hasFavorite, map[string]any{"isFavorite": true}},
-		{&s.assetsArchived, &s.hasArchived, map[string]any{"visibility": "archive"}},
-		{&s.assetsHidden, &s.hasHidden, map[string]any{"visibility": "hidden"}},
-		{&s.assetsLocked, &s.hasLocked, map[string]any{"visibility": "locked"}},
-		{&s.assetsOffline, &s.hasOffline, map[string]any{"isOffline": true}},
-		{&s.assetsMotion, &s.hasMotion, map[string]any{"isMotion": true}},
-		{&s.assetsNotInAlbum, &s.hasNotInAlbum, map[string]any{"isNotInAlbum": true}},
-		{&s.assetsEncoded, &s.hasEncoded, map[string]any{"isEncoded": true}},
+		{&a.favorite, map[string]any{"isFavorite": true}},
+		{&a.archived, map[string]any{"visibility": "archive"}},
+		{&a.hidden, map[string]any{"visibility": "hidden"}},
+		{&a.locked, map[string]any{"visibility": "locked"}},
+		{&a.offline, map[string]any{"isOffline": true}},
+		{&a.motion, map[string]any{"isMotion": true}},
+		{&a.notInAlbum, map[string]any{"isNotInAlbum": true}},
+		{&a.encoded, map[string]any{"isEncoded": true}},
 	}
+	// visibility=locked 401s under API-key auth (PIN-protected folder); skip
+	// filters the server rejects so one denial can't drop the other states.
 	for _, c := range checks {
 		n, err := p.c.StatTotal(ctx, c.filter)
 		if err != nil {
+			if isSoftStatus(err) {
+				continue
+			}
 			return err
 		}
-		*c.v, *c.ok = n, true
+		*c.v = set(n)
 	}
 	// Trashed has no isTrashed boolean in StatisticsSearchDto; use /assets/statistics.
 	var ts struct {
 		Total float64 `json:"total"`
 	}
 	if err := p.c.Get(ctx, "/assets/statistics?isTrashed=true", &ts); err == nil {
-		s.assetsTrashed, s.hasTrashed = ts.Total, true
+		a.trashed = set(ts.Total)
 	}
 	return nil
 }
@@ -369,13 +376,13 @@ func (p *poller) collectRatings(ctx context.Context, s *snapshot) error {
 		if err != nil {
 			return err
 		}
-		s.assetsByRating[strconv.Itoa(r)] = n
+		s.assets.byRating[strconv.Itoa(r)] = n
 	}
 	n, err := p.c.StatTotal(ctx, map[string]any{"rating": nil})
 	if err != nil {
 		return err
 	}
-	s.assetsByRating["unrated"] = n
+	s.assets.byRating["unrated"] = n
 	return nil
 }
 
@@ -384,12 +391,13 @@ func (p *poller) collectYears(ctx context.Context, s *snapshot) error {
 		TimeBucket string  `json:"timeBucket"`
 		Count      float64 `json:"count"`
 	}
+	// v3 ignores size; pre-v1.133 servers require it — keep it for both.
 	if err := p.c.Get(ctx, "/timeline/buckets?size=MONTH", &buckets); err != nil {
 		return err
 	}
 	for _, b := range buckets {
 		if len(b.TimeBucket) >= 4 {
-			s.assetsByYear[b.TimeBucket[:4]] += b.Count
+			s.assets.byYear[b.TimeBucket[:4]] += b.Count
 		}
 	}
 	return nil
@@ -414,11 +422,8 @@ func applyBreakdown(s *snapshot, bd *breakdownData) {
 	if bd == nil {
 		return
 	}
-	s.cameraMakes, s.hasCameraMakes = bd.cameraMakes, bd.hasCameraMakes
-	s.cameraModels, s.hasCameraModels = bd.cameraModels, bd.hasCameraModels
-	s.lenses, s.hasLenses = bd.lenses, bd.hasLenses
-	s.assetsByMake, s.assetsByModel, s.assetsByLens = bd.assetsByMake, bd.assetsByModel, bd.assetsByLens
-	s.personAssets = bd.personAssets
+	s.cameras = bd.cameras
+	s.people.assets = bd.personAssets
 }
 
 func (p *poller) collectCameras(ctx context.Context, bd *breakdownData) error {
@@ -426,21 +431,21 @@ func (p *poller) collectCameras(ctx context.Context, bd *breakdownData) error {
 	if err != nil {
 		return err
 	}
-	bd.cameraMakes, bd.hasCameraMakes = float64(len(makes)), true
+	bd.cameras.makes = set(float64(len(makes)))
 	models, err := p.c.Suggest(ctx, "camera-model")
 	if err != nil {
 		return err
 	}
-	bd.cameraModels, bd.hasCameraModels = float64(len(models)), true
+	bd.cameras.models = set(float64(len(models)))
 	lenses, err := p.c.Suggest(ctx, "camera-lens-model")
 	if err != nil {
 		return err
 	}
-	bd.lenses, bd.hasLenses = float64(len(lenses)), true
+	bd.cameras.lenses = set(float64(len(lenses)))
 
-	bd.assetsByMake = p.fanout(ctx, makes, "make", 0) // makes are low-cardinality: emit all
-	bd.assetsByModel = p.fanout(ctx, models, "model", p.cfg.TopN)
-	bd.assetsByLens = p.fanout(ctx, lenses, "lensModel", p.cfg.TopN)
+	bd.cameras.byMake = p.fanout(ctx, makes, "make", 0) // makes are low-cardinality: emit all
+	bd.cameras.byModel = p.fanout(ctx, models, "model", p.cfg.TopN)
+	bd.cameras.byLens = p.fanout(ctx, lenses, "lensModel", p.cfg.TopN)
 	return nil
 }
 
@@ -481,14 +486,15 @@ func (p *poller) fanout(ctx context.Context, values []string, field string, n in
 }
 
 func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
+	g := &s.geo
 	if cities, err := p.c.Suggest(ctx, "city"); err == nil {
-		s.cities, s.hasCities = float64(len(cities)), true
+		g.cities = set(float64(len(cities)))
 	}
 	if states, err := p.c.Suggest(ctx, "state"); err == nil {
-		s.states, s.hasStates = float64(len(states)), true
+		g.states = set(float64(len(states)))
 	}
 	if countries, err := p.c.Suggest(ctx, "country"); err == nil {
-		s.countries, s.hasCountries = float64(len(countries)), true
+		g.countries = set(float64(len(countries)))
 	}
 	// One /map/markers call yields the geotagged total, the per-country and
 	// per-city splits, and each group's asset centroid (mean lat/lon) for a
@@ -502,7 +508,7 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/map/markers", &markers); err != nil {
 		return err
 	}
-	s.geotagged, s.hasGeotagged = float64(len(markers)), true
+	g.geotagged = set(float64(len(markers)))
 	type acc struct{ sumLat, sumLon, count float64 }
 	countryAgg := map[string]*acc{}
 	cityAgg := map[cityKey]*acc{}
@@ -516,8 +522,8 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 			city = "unknown"
 		}
 		ck := cityKey{city: city, country: country}
-		s.assetsByCountry[country]++
-		s.assetsByCity[ck]++
+		g.byCountry[country]++
+		g.byCity[ck]++
 		if country != "unknown" {
 			a := countryAgg[country]
 			if a == nil {
@@ -537,16 +543,18 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	}
 	for country, a := range countryAgg {
 		// Round to ~11 km so the centroid label stays stable as assets are added.
-		lat := strconv.FormatFloat(a.sumLat/a.count, 'f', 1, 64)
-		lon := strconv.FormatFloat(a.sumLon/a.count, 'f', 1, 64)
-		s.geoCentroids[country] = [2]string{lat, lon}
+		g.countryCentroids[country] = latlon{
+			lat: strconv.FormatFloat(a.sumLat/a.count, 'f', 1, 64),
+			lon: strconv.FormatFloat(a.sumLon/a.count, 'f', 1, 64),
+		}
 	}
 	for ck, a := range cityAgg {
 		// ~1.1 km: city clusters are tight, so finer rounding stays stable while
 		// keeping the marker inside the city.
-		lat := strconv.FormatFloat(a.sumLat/a.count, 'f', 2, 64)
-		lon := strconv.FormatFloat(a.sumLon/a.count, 'f', 2, 64)
-		s.cityCentroids[ck] = [2]string{lat, lon}
+		g.cityCentroids[ck] = latlon{
+			lat: strconv.FormatFloat(a.sumLat/a.count, 'f', 2, 64),
+			lon: strconv.FormatFloat(a.sumLon/a.count, 'f', 2, 64),
+		}
 	}
 	return nil
 }
@@ -568,8 +576,8 @@ func (p *poller) collectPeople(ctx context.Context, s *snapshot) error {
 			return err
 		}
 		if page == 1 {
-			s.people, s.peopleHidden = resp.Total, resp.Hidden
-			s.hasPeople = true
+			s.people.total, s.people.hidden = resp.Total, resp.Hidden
+			s.people.ok = true
 		}
 		for _, pe := range resp.People {
 			if strings.TrimSpace(pe.Name) != "" {
@@ -584,9 +592,9 @@ func (p *poller) collectPeople(ctx context.Context, s *snapshot) error {
 		}
 		page++
 	}
-	s.peopleNamed = named
-	s.peopleUnnamed = s.people - named
-	s.peopleWithBirthdate = withBirthdate
+	s.people.named = named
+	s.people.unnamed = s.people.total - named
+	s.people.withBirthdate = withBirthdate
 	return nil
 }
 
@@ -649,32 +657,63 @@ func (p *poller) collectUsers(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/admin/users?withDeleted=true", &users); err != nil {
 		return err
 	}
-	s.hasUsers = true
+	s.users.ok = true
 	for _, u := range users {
 		st := u.Status
 		if st == "" {
 			st = "active"
 		}
-		s.usersByStatus[st]++
+		s.users.byStatus[st]++
 		if u.IsAdmin {
-			s.usersByRole["admin"]++
+			s.users.byRole["admin"]++
 		} else {
-			s.usersByRole["user"]++
+			s.users.byRole["user"]++
 		}
 	}
 	return nil
 }
 
+// queueCounts is the per-state depth shared by /queues (v2.4.0+) and the legacy
+// /jobs map (v1–v3, deprecated at v2.4.0).
+type queueCounts struct {
+	Active    float64 `json:"active"`
+	Completed float64 `json:"completed"`
+	Failed    float64 `json:"failed"`
+	Delayed   float64 `json:"delayed"`
+	Waiting   float64 `json:"waiting"`
+	Paused    float64 `json:"paused"`
+}
+
+// collectJobs prefers /queues (added v2.4.0); it falls back to the deprecated
+// /jobs map on 403/404 — older servers lack /queues, and keys scoped to job.read
+// (not queue.read) get 403 — so both metric shapes keep the same series.
 func (p *poller) collectJobs(ctx context.Context, s *snapshot) error {
+	var queues []struct {
+		Name       string      `json:"name"`
+		IsPaused   bool        `json:"isPaused"`
+		Statistics queueCounts `json:"statistics"`
+	}
+	err := p.c.Get(ctx, "/queues", &queues)
+	if immich.StatusIs(err, 403, 404) {
+		return p.collectJobsLegacy(ctx, s)
+	}
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(queues))
+	for _, q := range queues {
+		if seen[q.Name] {
+			continue // guard against duplicate names crashing the whole /metrics scrape
+		}
+		seen[q.Name] = true
+		addQueue(s, q.Name, q.IsPaused, q.Statistics)
+	}
+	return nil
+}
+
+func (p *poller) collectJobsLegacy(ctx context.Context, s *snapshot) error {
 	var jobs map[string]struct {
-		JobCounts struct {
-			Active    float64 `json:"active"`
-			Completed float64 `json:"completed"`
-			Failed    float64 `json:"failed"`
-			Delayed   float64 `json:"delayed"`
-			Waiting   float64 `json:"waiting"`
-			Paused    float64 `json:"paused"`
-		} `json:"jobCounts"`
+		JobCounts   queueCounts `json:"jobCounts"`
 		QueueStatus struct {
 			IsPaused bool `json:"isPaused"`
 		} `json:"queueStatus"`
@@ -682,19 +721,22 @@ func (p *poller) collectJobs(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/jobs", &jobs); err != nil {
 		return err
 	}
-	for q, j := range jobs {
-		jc := j.JobCounts
-		s.jobQueues = append(s.jobQueues,
-			jobQueueStat{q, "active", jc.Active},
-			jobQueueStat{q, "completed", jc.Completed},
-			jobQueueStat{q, "failed", jc.Failed},
-			jobQueueStat{q, "delayed", jc.Delayed},
-			jobQueueStat{q, "waiting", jc.Waiting},
-			jobQueueStat{q, "paused", jc.Paused},
-		)
-		s.jobQueuePaused[q] = boolf(j.QueueStatus.IsPaused)
+	for name, j := range jobs {
+		addQueue(s, name, j.QueueStatus.IsPaused, j.JobCounts)
 	}
 	return nil
+}
+
+func addQueue(s *snapshot, name string, paused bool, c queueCounts) {
+	s.jobs.queues = append(s.jobs.queues,
+		jobQueueStat{name, "active", c.Active},
+		jobQueueStat{name, "completed", c.Completed},
+		jobQueueStat{name, "failed", c.Failed},
+		jobQueueStat{name, "delayed", c.Delayed},
+		jobQueueStat{name, "waiting", c.Waiting},
+		jobQueueStat{name, "paused", c.Paused},
+	)
+	s.jobs.paused[name] = boolf(paused)
 }
 
 func (p *poller) collectAlbums(ctx context.Context, s *snapshot) error {
@@ -708,32 +750,33 @@ func (p *poller) collectAlbums(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/albums", &albums); err != nil {
 		return err
 	}
-	s.hasAlbums = true
+	al := &s.albums
+	al.ok = true
 	var sum, maxCount float64
 	vals := make([]labeledVal, 0, len(albums))
 	for _, a := range albums {
 		if a.Shared {
-			s.albumsSharedCount++
+			al.sharedCount++
 		} else {
-			s.albumsPrivateCount++
+			al.privateCount++
 		}
 		sum += a.AssetCount
 		if a.AssetCount > maxCount {
 			maxCount = a.AssetCount
 		}
 		if a.AssetCount == 0 {
-			s.albumsEmpty++
+			al.empty++
 		}
 		if a.HasSharedLink {
-			s.albumsWithSharedLink++
+			al.withSharedLink++
 		}
 		vals = append(vals, labeledVal{id: a.ID, name: a.AlbumName, value: a.AssetCount})
 	}
-	s.albumAssets, s.albumAssetsMax = sum, maxCount
+	al.assetsTotal, al.assetsMax = sum, maxCount
 	if n := len(albums); n > 0 {
-		s.albumAssetsAvg = sum / float64(n)
+		al.assetsAvg = sum / float64(n)
 	}
-	s.topAlbums = topNLabeled(vals, p.cfg.TopN)
+	al.top = topNLabeled(vals, p.cfg.TopN)
 	return nil
 }
 
@@ -746,8 +789,8 @@ func (p *poller) collectAlbumStats(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/albums/statistics", &st); err != nil {
 		return err
 	}
-	s.albumsOwned, s.albumsShared, s.albumsNotShared = st.Owned, st.Shared, st.NotShared
-	s.hasAlbumStats = true
+	s.albums.owned, s.albums.shared, s.albums.notShared = st.Owned, st.Shared, st.NotShared
+	s.albums.statsOK = true
 	return nil
 }
 
@@ -760,17 +803,18 @@ func (p *poller) collectSharedLinks(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/shared-links", &links); err != nil {
 		return err
 	}
-	s.hasSharedLinks = true
+	sl := &s.albums.sharedLinks
+	sl.ok = true
 	now := time.Now()
 	for _, l := range links {
-		s.sharedLinks[l.Type]++
+		sl.byType[l.Type]++
 		if l.ExpiresAt == nil {
-			s.sharedLinksNeverExpire++
+			sl.neverExpire++
 		} else if t, err := time.Parse(time.RFC3339, *l.ExpiresAt); err == nil && t.Before(now) {
-			s.sharedLinksExpired++
+			sl.expired++
 		}
 		if l.Password != nil && *l.Password != "" {
-			s.sharedLinksPasswordProtected++
+			sl.passwordProtected++
 		}
 	}
 	return nil
@@ -783,7 +827,7 @@ func (p *poller) collectPartners(ctx context.Context, s *snapshot) error {
 		if err := p.c.Get(ctx, "/partners?direction="+apiDir, &arr); err != nil {
 			return err
 		}
-		s.partners[label] = float64(len(arr))
+		s.albums.partners[label] = float64(len(arr))
 	}
 	return nil
 }
@@ -795,11 +839,11 @@ func (p *poller) collectTags(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/tags", &tags); err != nil {
 		return err
 	}
-	s.hasTags = true
-	s.tags = float64(len(tags))
+	s.content.tagsOK = true
+	s.content.tags = float64(len(tags))
 	for _, t := range tags {
 		if t.ParentID == nil {
-			s.tagsRoot++
+			s.content.tagsRoot++
 		}
 	}
 	return nil
@@ -812,7 +856,7 @@ func (p *poller) collectMemories(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/memories/statistics", &st); err != nil {
 		return err
 	}
-	s.memories, s.hasMemories = st.Total, true
+	s.content.memories = set(st.Total)
 	return nil
 }
 
@@ -825,9 +869,17 @@ func (p *poller) collectLibraries(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/libraries", &libs); err != nil {
 		return err
 	}
-	s.libraries, s.hasLibraries = float64(len(libs)), true
+	s.content.libraries = set(float64(len(libs)))
 	for _, l := range libs {
-		s.perLibrary = append(s.perLibrary, labeledVal{id: l.ID, name: l.Name, value: l.AssetCount})
+		// Immich v3 stopped populating assetCount in the list response; statistics is authoritative.
+		count := l.AssetCount
+		var st struct {
+			Total float64 `json:"total"`
+		}
+		if err := p.c.Get(ctx, "/libraries/"+l.ID+"/statistics", &st); err == nil {
+			count = st.Total
+		}
+		s.content.perLibrary = append(s.content.perLibrary, labeledVal{id: l.ID, name: l.Name, value: count})
 	}
 	return nil
 }
@@ -837,7 +889,7 @@ func (p *poller) collectAPIKeys(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/api-keys", &keys); err != nil {
 		return err
 	}
-	s.apiKeys, s.hasAPIKeys = float64(len(keys)), true
+	s.content.apiKeys = set(float64(len(keys)))
 	return nil
 }
 
@@ -846,7 +898,7 @@ func (p *poller) collectSessions(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/sessions", &sess); err != nil {
 		return err
 	}
-	s.sessions, s.hasSessions = float64(len(sess)), true
+	s.content.sessions = set(float64(len(sess)))
 	return nil
 }
 
@@ -858,13 +910,13 @@ func (p *poller) collectNotifications(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/notifications", &notifs); err != nil {
 		return err
 	}
-	s.hasNotifications = true
+	s.content.notifOK = true
 	for _, n := range notifs {
 		if n.ReadAt == nil {
-			s.notificationsUnread++
+			s.content.notifUnread++
 		}
 		if n.Level != "" {
-			s.notificationsByLevel[n.Level]++
+			s.content.notifByLevel[n.Level]++
 		}
 	}
 	return nil
@@ -877,10 +929,10 @@ func (p *poller) collectDuplicates(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/duplicates", &dups); err != nil {
 		return err
 	}
-	s.hasDuplicates = true
-	s.duplicateSets = float64(len(dups))
+	s.content.duplicatesOK = true
+	s.content.duplicateSets = float64(len(dups))
 	for _, d := range dups {
-		s.duplicateAssets += float64(len(d.Assets))
+		s.content.duplicateAssets += float64(len(d.Assets))
 	}
 	return nil
 }
@@ -892,15 +944,19 @@ func (p *poller) collectStacks(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/stacks", &stacks); err != nil {
 		return err
 	}
-	s.hasStacks = true
-	s.stacks = float64(len(stacks))
+	s.content.stacksOK = true
+	s.content.stacks = float64(len(stacks))
 	for _, st := range stacks {
-		s.stackedAssets += float64(len(st.Assets))
+		s.content.stackedAssets += float64(len(st.Assets))
 	}
 	return nil
 }
 
 // --- helpers ---
+
+// isSoftStatus reports HTTP failures treated as "optional/expected": 401/403
+// (permission- or elevated-auth-gated) and 404 (endpoint absent on this version).
+func isSoftStatus(err error) bool { return immich.StatusIs(err, 401, 403, 404) }
 
 func boolf(b bool) float64 {
 	if b {
@@ -909,7 +965,36 @@ func boolf(b bool) float64 {
 	return 0
 }
 
-func semver(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+// parseSemver reads "v1.2.3" (pre-release/build suffix on the last field
+// ignored) into numeric fields; ok=false means the comparison is unknowable,
+// and callers must not report an update rather than risk a false positive.
+func parseSemver(v string) (parts [3]int, ok bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	fields := strings.Split(v, ".")
+	if len(fields) == 0 || len(fields) > 3 || fields[0] == "" {
+		return parts, false
+	}
+	for i, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil || n < 0 {
+			return parts, false
+		}
+		parts[i] = n
+	}
+	return parts, true
+}
+
+func semverGreater(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
 
 func camelToSnake(s string) string {
 	var b strings.Builder
