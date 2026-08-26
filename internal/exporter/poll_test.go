@@ -101,12 +101,23 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		// The PIN-protected locked folder rejects API-key access on real Immich;
+		// this must not abort the other per-state counts.
+		if body["visibility"] == "locked" {
+			http.Error(w, `{"message":"Elevated permission is required"}`, http.StatusUnauthorized)
+			return
+		}
 		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
 	})
 	mux.HandleFunc("GET /assets/statistics", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"total": 3, "images": 2, "videos": 1})
 	})
-	mux.HandleFunc("GET /timeline/buckets", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /timeline/buckets", func(w http.ResponseWriter, r *http.Request) {
+		// Guard: the exporter must keep sending size=MONTH (older servers require it).
+		if r.URL.Query().Get("size") != "MONTH" {
+			http.Error(w, "size is required", http.StatusBadRequest)
+			return
+		}
 		writeJSON(w, []map[string]any{
 			{"timeBucket": "2024-06-01", "count": 600},
 			{"timeBucket": "2024-01-01", "count": 100},
@@ -159,11 +170,17 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 			{"status": "deleted", "isAdmin": false},
 		})
 	})
-	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{
-			"smartSearch": map[string]any{
-				"jobCounts":   map[string]any{"active": 1, "waiting": 12, "failed": 0, "delayed": 0, "completed": 5, "paused": 0},
-				"queueStatus": map[string]any{"isActive": true, "isPaused": false},
+	mux.HandleFunc("GET /queues", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, []map[string]any{
+			{
+				"name":       "smartSearch",
+				"isPaused":   false,
+				"statistics": map[string]any{"active": 1, "waiting": 12, "failed": 0, "delayed": 0, "completed": 5, "paused": 0},
+			},
+			{
+				"name":       "thumbnailGeneration",
+				"isPaused":   true,
+				"statistics": map[string]any{"active": 0, "waiting": 0, "failed": 2, "delayed": 0, "completed": 100, "paused": 0},
 			},
 		})
 	})
@@ -196,7 +213,10 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 		writeJSON(w, map[string]any{"total": 7})
 	})
 	mux.HandleFunc("GET /libraries", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, []map[string]any{{"id": "l1", "name": "External", "assetCount": 5000}})
+		writeJSON(w, []map[string]any{{"id": "l1", "name": "External", "assetCount": 0}})
+	})
+	mux.HandleFunc("GET /libraries/l1/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"photos": 4998, "videos": 2, "usage": 1000, "total": 5000})
 	})
 	mux.HandleFunc("GET /api-keys", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []map[string]any{{}, {}})
@@ -249,83 +269,94 @@ func TestPollAdmin(t *testing.T) {
 			t.Errorf("%s = %v, want %v", name, got, want)
 		}
 	}
-	eq("serverUp", s.serverUp, 1)
-	eq("scrapeSuccess", s.scrapeSuccess, 1)
-	eq("keyIsAdmin", s.keyIsAdmin, 1)
-	eq("assets IMAGE", s.assets["IMAGE"], 1000)
-	eq("assets VIDEO", s.assets["VIDEO"], 50)
-	eq("serverUsageBytes", s.serverUsageBytes, 12000)
-	if len(s.perUser) != 1 || !s.perUser[0].quotaUnlimited {
-		t.Errorf("perUser = %+v", s.perUser)
+	eq("serverUp", s.health.serverUp, 1)
+	eq("scrapeSuccess", s.health.scrapeSuccess, 1)
+	eq("keyIsAdmin", s.health.keyIsAdmin, 1)
+	eq("assets IMAGE", s.assets.byType["IMAGE"], 1000)
+	eq("assets VIDEO", s.assets.byType["VIDEO"], 50)
+	eq("serverUsageBytes", s.assets.serverUsageBytes.v, 12000)
+	if len(s.users.perUser) != 1 || !s.users.perUser[0].quotaUnlimited {
+		t.Errorf("perUser = %+v", s.users.perUser)
 	}
-	eq("favorite", s.assetsFavorite, 12)
-	eq("archived", s.assetsArchived, 5)
-	eq("offline", s.assetsOffline, 2)
-	eq("trashed", s.assetsTrashed, 3)
-	eq("rating unrated", s.assetsByRating["unrated"], 990)
-	eq("rating 5", s.assetsByRating["5"], 5)
-	eq("year 2024", s.assetsByYear["2024"], 700)
-	eq("cameraMakes", s.cameraMakes, 2)
-	eq("byMake Apple", s.assetsByMake["Apple"], 800)
-	eq("byModel iPhone", s.assetsByModel["iPhone 15 Pro"], 700)
-	eq("geotagged", s.geotagged, 4)
-	eq("country China", s.assetsByCountry["China"], 2)
-	eq("country unknown", s.assetsByCountry["unknown"], 1)
-	eq("countries", s.countries, 2)
-	if c := s.geoCentroids["China"]; c[0] != "31.2" || c[1] != "121.3" {
+	eq("favorite", s.assets.favorite.v, 12)
+	eq("archived", s.assets.archived.v, 5)
+	eq("offline", s.assets.offline.v, 2)
+	eq("trashed", s.assets.trashed.v, 3)
+	// locked visibility 401s (PIN-protected) — it must be skipped without
+	// dropping the states that come after it in the loop.
+	if s.assets.locked.ok {
+		t.Error("assetsLocked should be absent when locked visibility is forbidden")
+	}
+	eq("motion", s.assets.motion.v, 30)
+	eq("notInAlbum", s.assets.notInAlbum.v, 400)
+	eq("encoded", s.assets.encoded.v, 40)
+	eq("rating unrated", s.assets.byRating["unrated"], 990)
+	eq("rating 5", s.assets.byRating["5"], 5)
+	eq("year 2024", s.assets.byYear["2024"], 700)
+	eq("cameraMakes", s.cameras.makes.v, 2)
+	eq("byMake Apple", s.cameras.byMake["Apple"], 800)
+	eq("byModel iPhone", s.cameras.byModel["iPhone 15 Pro"], 700)
+	eq("geotagged", s.geo.geotagged.v, 4)
+	eq("country China", s.geo.byCountry["China"], 2)
+	eq("country unknown", s.geo.byCountry["unknown"], 1)
+	eq("countries", s.geo.countries.v, 2)
+	if c := s.geo.countryCentroids["China"]; c.lat != "31.2" || c.lon != "121.3" {
 		t.Errorf("China centroid = %v, want [31.2 121.3]", c)
 	}
-	if _, ok := s.geoCentroids["unknown"]; ok {
+	if _, ok := s.geo.countryCentroids["unknown"]; ok {
 		t.Error("unknown country should have no centroid")
 	}
-	eq("city Shanghai", s.assetsByCity[cityKey{city: "Shanghai", country: "China"}], 1)
-	eq("city unknown/China", s.assetsByCity[cityKey{city: "unknown", country: "China"}], 1)
-	eq("city Tokyo", s.assetsByCity[cityKey{city: "Tokyo", country: "Japan"}], 1)
-	eq("city unknown/unknown", s.assetsByCity[cityKey{city: "unknown", country: "unknown"}], 1)
-	if c := s.cityCentroids[cityKey{city: "Shanghai", country: "China"}]; c[0] != "31.00" || c[1] != "121.00" {
+	eq("city Shanghai", s.geo.byCity[cityKey{city: "Shanghai", country: "China"}], 1)
+	eq("city unknown/China", s.geo.byCity[cityKey{city: "unknown", country: "China"}], 1)
+	eq("city Tokyo", s.geo.byCity[cityKey{city: "Tokyo", country: "Japan"}], 1)
+	eq("city unknown/unknown", s.geo.byCity[cityKey{city: "unknown", country: "unknown"}], 1)
+	if c := s.geo.cityCentroids[cityKey{city: "Shanghai", country: "China"}]; c.lat != "31.00" || c.lon != "121.00" {
 		t.Errorf("Shanghai centroid = %v, want [31.00 121.00]", c)
 	}
-	if _, ok := s.cityCentroids[cityKey{city: "unknown", country: "China"}]; ok {
+	if _, ok := s.geo.cityCentroids[cityKey{city: "unknown", country: "China"}]; ok {
 		t.Error("unknown city should have no centroid")
 	}
-	eq("people", s.people, 40)
-	eq("peopleNamed", s.peopleNamed, 2)
-	eq("peopleWithBirthdate", s.peopleWithBirthdate, 1)
-	if len(s.personAssets) != 3 {
-		t.Errorf("personAssets len = %d, want 3", len(s.personAssets))
+	eq("people", s.people.total, 40)
+	eq("peopleNamed", s.people.named, 2)
+	eq("peopleWithBirthdate", s.people.withBirthdate, 1)
+	if len(s.people.assets) != 3 {
+		t.Errorf("personAssets len = %d, want 3", len(s.people.assets))
 	}
-	eq("users active", s.usersByStatus["active"], 2)
-	eq("users deleted", s.usersByStatus["deleted"], 1)
-	eq("albums shared", s.albumsSharedCount, 1)
-	eq("albums empty", s.albumsEmpty, 1)
-	eq("album max", s.albumAssetsMax, 500)
-	eq("sharedLinks ALBUM", s.sharedLinks["ALBUM"], 1)
-	eq("sharedLinks expired", s.sharedLinksExpired, 1)
-	eq("partners incoming", s.partners["incoming"], 1)
-	eq("partners outgoing", s.partners["outgoing"], 2)
-	eq("tags", s.tags, 2)
-	eq("tagsRoot", s.tagsRoot, 1)
-	eq("memories", s.memories, 7)
-	eq("duplicateSets", s.duplicateSets, 1)
-	eq("duplicateAssets", s.duplicateAssets, 2)
-	eq("stacks", s.stacks, 1)
-	eq("stackedAssets", s.stackedAssets, 3)
-	eq("libraries", s.libraries, 1)
-	eq("storage size", s.storageSizeBytes, 1000)
-	eq("serverLicensed", s.serverLicensed, 1)
-	eq("updateAvail", s.updateAvail, 1)
-	if s.serverInfo["version"] != "v1.120.0" {
-		t.Errorf("serverInfo version = %q", s.serverInfo["version"])
+	eq("users active", s.users.byStatus["active"], 2)
+	eq("users deleted", s.users.byStatus["deleted"], 1)
+	eq("albums shared", s.albums.sharedCount, 1)
+	eq("albums empty", s.albums.empty, 1)
+	eq("album max", s.albums.assetsMax, 500)
+	eq("sharedLinks ALBUM", s.albums.sharedLinks.byType["ALBUM"], 1)
+	eq("sharedLinks expired", s.albums.sharedLinks.expired, 1)
+	eq("partners incoming", s.albums.partners["incoming"], 1)
+	eq("partners outgoing", s.albums.partners["outgoing"], 2)
+	eq("tags", s.content.tags, 2)
+	eq("tagsRoot", s.content.tagsRoot, 1)
+	eq("memories", s.content.memories.v, 7)
+	eq("duplicateSets", s.content.duplicateSets, 1)
+	eq("duplicateAssets", s.content.duplicateAssets, 2)
+	eq("stacks", s.content.stacks, 1)
+	eq("stackedAssets", s.content.stackedAssets, 3)
+	eq("libraries", s.content.libraries.v, 1)
+	eq("storage size", s.server.storageSizeBytes.v, 1000)
+	eq("serverLicensed", s.server.licensed, 1)
+	eq("updateAvail", s.server.updateAvail, 1)
+	if s.server.about.version != "v1.120.0" {
+		t.Errorf("serverInfo version = %q", s.server.about.version)
 	}
-	var jobOK bool
-	for _, jq := range s.jobQueues {
-		if jq.queue == "smartSearch" && jq.state == "waiting" && jq.count == 12 {
-			jobOK = true
-		}
+	jobFound := map[string]float64{}
+	for _, jq := range s.jobs.queues {
+		jobFound[jq.queue+"/"+jq.state] = jq.count
 	}
-	if !jobOK {
-		t.Errorf("smartSearch waiting=12 not found in %+v", s.jobQueues)
+	eq("smartSearch waiting", jobFound["smartSearch/waiting"], 12)
+	eq("smartSearch completed", jobFound["smartSearch/completed"], 5)
+	eq("thumbnailGeneration failed", jobFound["thumbnailGeneration/failed"], 2)
+	// comma-ok, not bare ==0: a missing key also reads 0 and would hide a dropped series.
+	if v, ok := s.jobs.paused["smartSearch"]; !ok || v != 0 {
+		t.Errorf("jobQueuePaused[smartSearch] = %v (present=%v), want 0 present", v, ok)
 	}
+	eq("thumbnailGeneration paused", s.jobs.paused["thumbnailGeneration"], 1)
 
 	// End-to-end: the real poll output must emit through the collector cleanly.
 	reg := prometheus.NewRegistry()
@@ -344,24 +375,188 @@ func TestPollNonAdminFallback(t *testing.T) {
 	if s == nil {
 		t.Fatal("nil snapshot")
 	}
-	if s.keyIsAdmin != 0 {
-		t.Errorf("keyIsAdmin = %v, want 0", s.keyIsAdmin)
+	if s.health.keyIsAdmin != 0 {
+		t.Errorf("keyIsAdmin = %v, want 0", s.health.keyIsAdmin)
 	}
 	// Asset counts come from the owner-scoped search/statistics fallback.
-	if s.assets["IMAGE"] != 1000 || s.assets["VIDEO"] != 50 {
+	if s.assets.byType["IMAGE"] != 1000 || s.assets.byType["VIDEO"] != 50 {
 		t.Errorf("fallback assets = %+v", s.assets)
 	}
 	// Admin-only sections must be absent.
-	if s.hasUsers {
+	if s.users.ok {
 		t.Error("hasUsers should be false for non-admin key")
 	}
-	if len(s.jobQueues) != 0 {
-		t.Errorf("jobQueues should be empty for non-admin, got %d", len(s.jobQueues))
+	if len(s.jobs.queues) != 0 {
+		t.Errorf("jobQueues should be empty for non-admin, got %d", len(s.jobs.queues))
 	}
-	if len(s.perUser) != 0 {
-		t.Errorf("perUser should be empty for non-admin, got %d", len(s.perUser))
+	if len(s.users.perUser) != 0 {
+		t.Errorf("perUser should be empty for non-admin, got %d", len(s.users.perUser))
 	}
-	if s.scrapeSuccess != 1 {
-		t.Errorf("scrapeSuccess = %v, want 1 (non-admin is not an error)", s.scrapeSuccess)
+	if s.health.scrapeSuccess != 1 {
+		t.Errorf("scrapeSuccess = %v, want 1 (non-admin is not an error)", s.health.scrapeSuccess)
+	}
+}
+
+// version-check can return a release OLDER than the running server (seen live:
+// v2.5.6 reported while running v3.0.1); only strictly-newer may set the flag.
+func TestCollectVersionCheck(t *testing.T) {
+	cases := []struct {
+		name, running, release string
+		want                   float64
+	}{
+		{"newer release", "v3.0.1", "v3.1.0", 1},
+		{"same version", "v3.1.0", "v3.1.0", 0},
+		{"older release (lagging check)", "v3.0.1", "v2.5.6", 0},
+		{"numeric not lexicographic", "v3.9.0", "v3.10.0", 1},
+		{"newer prerelease upstream", "v3.1.0", "v3.2.0-rc.1", 1},
+		{"stable supersedes running prerelease", "v3.2.0-rc.1", "v3.2.0", 1},
+		{"same prerelease", "v3.2.0-rc.1", "v3.2.0-rc.1", 0},
+		{"prerelease of running stable", "v3.2.0", "v3.2.0-rc.1", 0},
+		{"build metadata ignored", "v3.2.0+abc", "v3.2.0", 0},
+		{"unparseable release", "v3.1.0", "nightly", 0},
+		{"unknown running version", "", "v3.1.0", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /server/version-check", func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(w, map[string]any{"releaseVersion": tc.release})
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+			p, _ := testPoller(srv)
+			s := newSnapshot()
+			s.server.about.version = tc.running
+			if err := p.collectVersionCheck(context.Background(), s); err != nil {
+				t.Fatal(err)
+			}
+			if s.server.updateAvail != tc.want {
+				t.Errorf("updateAvail = %v, want %v", s.server.updateAvail, tc.want)
+			}
+			if s.server.latestVersion != tc.release {
+				t.Errorf("latestVersion = %q, want %q", s.server.latestVersion, tc.release)
+			}
+		})
+	}
+}
+
+// assetStatesSrv serves just the endpoints collectAssetStates needs, optionally
+// 401ing the locked-visibility query like a real PIN-protected folder.
+func assetStatesSrv(t *testing.T, lockedForbidden bool) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if lockedForbidden && body["visibility"] == "locked" {
+			http.Error(w, `{"message":"Elevated permission is required"}`, http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
+	})
+	mux.HandleFunc("GET /assets/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"total": 3})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCollectAssetStates(t *testing.T) {
+	t.Run("locked accessible", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, false))
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if !s.assets.locked.ok {
+			t.Error("hasLocked should be true when the key can query locked visibility")
+		}
+		if !s.assets.motion.ok || s.assets.motion.v != 30 {
+			t.Errorf("motion = %v (present=%v)", s.assets.motion.v, s.assets.motion.ok)
+		}
+	})
+
+	t.Run("locked 401 skips only locked", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, true))
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatalf("a 401 on locked must not fail the collector: %v", err)
+		}
+		if s.assets.locked.ok {
+			t.Error("hasLocked should be false when locked visibility is forbidden")
+		}
+		// Every state after locked in the loop must still populate.
+		if s.assets.motion.v != 30 || s.assets.notInAlbum.v != 400 || s.assets.encoded.v != 40 || !s.assets.trashed.ok {
+			t.Errorf("states after locked dropped: motion=%v notInAlbum=%v encoded=%v trashed(present)=%v",
+				s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
+		}
+	})
+}
+
+// A key with library.read but not library.statistics must leave that library's
+// sample absent (never a false zero) while the library count is still reported.
+func TestCollectLibrariesStatisticsForbidden(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /libraries", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, []map[string]any{{"id": "l1", "name": "A"}, {"id": "l2", "name": "B"}})
+	})
+	mux.HandleFunc("GET /libraries/l1/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	})
+	mux.HandleFunc("GET /libraries/l2/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"total": 42})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p, _ := testPoller(srv)
+	s := newSnapshot()
+	if err := p.collectLibraries(context.Background(), s); err != nil {
+		t.Fatalf("a 403 on one library's statistics must not fail the collector: %v", err)
+	}
+	if !s.content.libraries.ok || s.content.libraries.v != 2 {
+		t.Errorf("libraries = %v (present=%v), want 2", s.content.libraries.v, s.content.libraries.ok)
+	}
+	if len(s.content.perLibrary) != 1 || s.content.perLibrary[0].id != "l2" || s.content.perLibrary[0].value != 42 {
+		t.Errorf("perLibrary = %+v, want only l2=42", s.content.perLibrary)
+	}
+}
+
+// collectJobs must fall back to the deprecated /jobs map when /queues is absent
+// (older servers 404) or the key lacks queue.read (403).
+func TestCollectJobsFallback(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /queues", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "no queues here", status)
+		})
+		mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, map[string]any{
+				"smartSearch": map[string]any{
+					"jobCounts":   map[string]any{"active": 1, "waiting": 7, "failed": 0, "delayed": 0, "completed": 5, "paused": 0},
+					"queueStatus": map[string]any{"isPaused": true},
+				},
+			})
+		})
+		srv := httptest.NewServer(mux)
+		p, _ := testPoller(srv)
+		s := newSnapshot()
+		if err := p.collectJobs(context.Background(), s); err != nil {
+			t.Fatalf("/queues %d should fall back to /jobs: %v", status, err)
+		}
+		var waiting float64
+		var found bool
+		for _, jq := range s.jobs.queues {
+			if jq.queue == "smartSearch" && jq.state == "waiting" {
+				waiting, found = jq.count, true
+			}
+		}
+		if !found || waiting != 7 {
+			t.Errorf("status %d: legacy smartSearch waiting = %v (found=%v), want 7", status, waiting, found)
+		}
+		if v, ok := s.jobs.paused["smartSearch"]; !ok || v != 1 {
+			t.Errorf("status %d: legacy paused = %v (present=%v), want 1", status, v, ok)
+		}
+		srv.Close()
 	}
 }

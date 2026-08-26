@@ -18,6 +18,7 @@
 !LICENSE
 !.gitignore
 !.dockerignore
+!*.golden
 
 # --- Denylist: never track (overrides the allowlist above) ---
 # Compiled binary, test & coverage artifacts

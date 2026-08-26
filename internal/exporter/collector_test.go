@@ -14,77 +14,76 @@ import (
 // otherwise panic only at scrape time) or duplicate series.
 func fullSnapshot() *snapshot {
 	s := newSnapshot()
-	s.serverUp, s.scrapeSuccess, s.scrapeDurationSeconds, s.lastSuccessUnix, s.keyIsAdmin = 1, 1, 0.42, 1.7e9, 1
-	s.serverInfo = map[string]string{"version": "v1.120.0", "source_ref": "main", "ffmpeg": "6.0"}
-	s.serverLicensed = 1
-	s.latestVersion, s.updateAvail = "v1.121.0", 1
-	s.features["smart_search"] = 1
-	s.features["facial_recognition"] = 0
-	s.configTrashDays, s.hasConfigTrashDays = 30, true
-	s.configUserDeleteDelayDays, s.hasConfigDeleteDelay = 7, true
-	s.configMinFaces, s.hasConfigMinFaces = 3, true
-	s.serverInitialized, s.hasInitialized = 1, true
-	s.serverOnboarded, s.hasOnboarded = 1, true
-	s.storageSizeBytes, s.storageUsedBytes, s.storageAvailableBytes, s.hasStorage = 1e12, 4e11, 6e11, true
-	s.assets["IMAGE"], s.assets["VIDEO"] = 1000, 50
-	s.assetStorage["IMAGE"], s.assetStorage["VIDEO"] = 9e9, 3e9
-	s.serverUsageBytes, s.hasServerUsage = 12e9, true
-	s.assetsByYear["2024"], s.assetsByYear["2023"] = 600, 450
-	s.assetsByRating["5"], s.assetsByRating["unrated"] = 10, 990
-	s.assetsFavorite, s.hasFavorite = 12, true
-	s.assetsArchived, s.hasArchived = 5, true
-	s.assetsHidden, s.hasHidden = 1, true
-	s.assetsLocked, s.hasLocked = 0, true
-	s.assetsOffline, s.hasOffline = 2, true
-	s.assetsMotion, s.hasMotion = 30, true
-	s.assetsNotInAlbum, s.hasNotInAlbum = 400, true
-	s.assetsEncoded, s.hasEncoded = 40, true
-	s.assetsTrashed, s.hasTrashed = 3, true
-	s.cameraMakes, s.hasCameraMakes = 4, true
-	s.cameraModels, s.hasCameraModels = 9, true
-	s.lenses, s.hasLenses = 6, true
-	s.assetsByMake = map[string]float64{"Apple": 800, "Sony": 200}
-	s.assetsByModel = map[string]float64{"iPhone 15 Pro": 700, "other": 350}
-	s.assetsByLens = map[string]float64{"24mm": 100}
-	s.cities, s.hasCities = 12, true
-	s.states, s.hasStates = 8, true
-	s.countries, s.hasCountries = 3, true
-	s.geotagged, s.hasGeotagged = 720, true
-	s.assetsByCountry = map[string]float64{"China": 500, "Japan": 200, "unknown": 20}
-	s.geoCentroids = map[string][2]string{"China": {"31.2", "121.5"}, "Japan": {"35.7", "139.7"}}
-	s.assetsByCity = map[cityKey]float64{
+	s.health = healthSnap{serverUp: 1, scrapeSuccess: 1, scrapeDurationSeconds: 0.42, lastSuccessUnix: 1.7e9, keyIsAdmin: 1}
+	s.server.about = aboutInfo{version: "v1.120.0", sourceRef: "main", ffmpeg: "6.0", ok: true}
+	s.server.licensed = 1
+	s.server.latestVersion, s.server.updateAvail = "v1.121.0", 1
+	s.server.features["smart_search"] = 1
+	s.server.features["facial_recognition"] = 0
+	s.server.trashDays = set(30)
+	s.server.userDeleteDelayDays = set(7)
+	s.server.minFaces = set(3)
+	s.server.initialized = set(1)
+	s.server.onboarded = set(1)
+	s.server.storageSizeBytes, s.server.storageUsedBytes, s.server.storageAvailableBytes = set(1e12), set(4e11), set(6e11)
+	s.assets.byType["IMAGE"], s.assets.byType["VIDEO"] = 1000, 50
+	s.assets.storageByType["IMAGE"], s.assets.storageByType["VIDEO"] = 9e9, 3e9
+	s.assets.serverUsageBytes = set(12e9)
+	s.assets.byYear["2024"], s.assets.byYear["2023"] = 600, 450
+	s.assets.byRating["5"], s.assets.byRating["unrated"] = 10, 990
+	s.assets.favorite = set(12)
+	s.assets.archived = set(5)
+	s.assets.hidden = set(1)
+	s.assets.locked = set(0)
+	s.assets.offline = set(2)
+	s.assets.motion = set(30)
+	s.assets.notInAlbum = set(400)
+	s.assets.encoded = set(40)
+	s.assets.trashed = set(3)
+	s.cameras.makes, s.cameras.models, s.cameras.lenses = set(4), set(9), set(6)
+	s.cameras.byMake = map[string]float64{"Apple": 800, "Sony": 200}
+	s.cameras.byModel = map[string]float64{"iPhone 15 Pro": 700, "other": 350}
+	s.cameras.byLens = map[string]float64{"24mm": 100}
+	s.geo.cities, s.geo.states, s.geo.countries, s.geo.geotagged = set(12), set(8), set(3), set(720)
+	s.geo.byCountry = map[string]float64{"China": 500, "Japan": 200, "unknown": 20}
+	s.geo.countryCentroids = map[string]latlon{"China": {"31.2", "121.5"}, "Japan": {"35.7", "139.7"}}
+	s.geo.byCity = map[cityKey]float64{
 		{city: "Shanghai", country: "China"}: 450,
 		{city: "unknown", country: "China"}:  50,
 	}
-	s.cityCentroids = map[cityKey][2]string{{city: "Shanghai", country: "China"}: {"31.23", "121.47"}}
-	s.people, s.peopleHidden, s.peopleNamed, s.peopleUnnamed, s.peopleWithBirthdate, s.hasPeople = 40, 2, 25, 15, 5, true
-	s.personAssets = []labeledVal{{"id1", "Alice", 300}, {"id2", "(unnamed)", 120}}
-	s.hasUsers = true
-	s.usersByStatus["active"], s.usersByStatus["deleted"] = 3, 1
-	s.usersByRole["admin"], s.usersByRole["user"] = 1, 3
-	s.perUser = []userStat{
+	s.geo.cityCentroids = map[cityKey]latlon{{city: "Shanghai", country: "China"}: {"31.23", "121.47"}}
+	s.people = peopleSnap{
+		total: 40, hidden: 2, named: 25, unnamed: 15, withBirthdate: 5, ok: true,
+		assets: []labeledVal{{"id1", "Alice", 300}, {"id2", "(unnamed)", 120}},
+	}
+	s.users.ok = true
+	s.users.byStatus["active"], s.users.byStatus["deleted"] = 3, 1
+	s.users.byRole["admin"], s.users.byRole["user"] = 1, 3
+	s.users.perUser = []userStat{
 		{id: "u1", name: "admin", photos: 1000, videos: 50, usageBytes: 12e9, quotaUnlimited: true},
 		{id: "u2", name: "bob", photos: 10, videos: 0, usageBytes: 1e8, quotaBytes: 5e9},
 	}
-	s.albumsOwned, s.albumsShared, s.albumsNotShared, s.hasAlbumStats = 8, 3, 5, true
-	s.albumsSharedCount, s.albumsPrivateCount = 3, 5
-	s.albumAssets, s.albumsEmpty, s.albumsWithSharedLink, s.albumAssetsMax, s.albumAssetsAvg, s.hasAlbums = 1200, 1, 2, 500, 150, true
-	s.topAlbums = []labeledVal{{"a1", "Trips", 500}, {"a2", "Family", 300}}
-	s.sharedLinks["ALBUM"], s.sharedLinks["INDIVIDUAL"] = 2, 1
-	s.sharedLinksExpired, s.sharedLinksNeverExpire, s.sharedLinksPasswordProtected, s.hasSharedLinks = 1, 1, 1, true
-	s.partners["incoming"], s.partners["outgoing"] = 1, 2
-	s.tags, s.tagsRoot, s.hasTags = 20, 5, true
-	s.memories, s.hasMemories = 7, true
-	s.duplicateSets, s.duplicateAssets, s.hasDuplicates = 4, 9, true
-	s.stacks, s.stackedAssets, s.hasStacks = 3, 8, true
-	s.libraries, s.hasLibraries = 2, true
-	s.perLibrary = []labeledVal{{"l1", "Photos", 5000}}
-	s.apiKeys, s.hasAPIKeys = 3, true
-	s.sessions, s.hasSessions = 2, true
-	s.notificationsUnread, s.hasNotifications = 4, true
-	s.notificationsByLevel["error"], s.notificationsByLevel["info"] = 1, 3
-	s.jobQueues = []jobQueueStat{{"smartSearch", "waiting", 12}, {"smartSearch", "active", 1}}
-	s.jobQueuePaused["smartSearch"] = 0
+	s.albums.owned, s.albums.shared, s.albums.notShared, s.albums.statsOK = 8, 3, 5, true
+	s.albums.sharedCount, s.albums.privateCount = 3, 5
+	s.albums.assetsTotal, s.albums.empty, s.albums.withSharedLink = 1200, 1, 2
+	s.albums.assetsMax, s.albums.assetsAvg, s.albums.ok = 500, 150, true
+	s.albums.top = []labeledVal{{"a1", "Trips", 500}, {"a2", "Family", 300}}
+	s.albums.sharedLinks.byType["ALBUM"], s.albums.sharedLinks.byType["INDIVIDUAL"] = 2, 1
+	s.albums.sharedLinks.expired, s.albums.sharedLinks.neverExpire = 1, 1
+	s.albums.sharedLinks.passwordProtected, s.albums.sharedLinks.ok = 1, true
+	s.albums.partners["incoming"], s.albums.partners["outgoing"] = 1, 2
+	s.content.tags, s.content.tagsRoot, s.content.tagsOK = 20, 5, true
+	s.content.memories = set(7)
+	s.content.duplicateSets, s.content.duplicateAssets, s.content.duplicatesOK = 4, 9, true
+	s.content.stacks, s.content.stackedAssets, s.content.stacksOK = 3, 8, true
+	s.content.libraries = set(2)
+	s.content.perLibrary = []labeledVal{{"l1", "Photos", 5000}}
+	s.content.apiKeys = set(3)
+	s.content.sessions = set(2)
+	s.content.notifUnread, s.content.notifOK = 4, true
+	s.content.notifByLevel["error"], s.content.notifByLevel["info"] = 1, 3
+	s.jobs.queues = []jobQueueStat{{"smartSearch", "waiting", 12}, {"smartSearch", "active", 1}}
+	s.jobs.paused["smartSearch"] = 0
 	return s
 }
 

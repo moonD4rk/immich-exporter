@@ -1,5 +1,5 @@
 # Cross-compile natively on the build host (e.g. arm64) to the target arch.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

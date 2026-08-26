@@ -12,6 +12,16 @@ import (
 
 const ns = "immich"
 
+// opt is a float64 that knows whether it was actually collected. Absent values
+// are simply not emitted, preserving "absent vs zero" semantics for endpoints
+// that are admin-gated or missing on older Immich versions.
+type opt struct {
+	v  float64
+	ok bool
+}
+
+func set(v float64) opt { return opt{v, true} }
+
 // labeledVal is a single labeled gauge value (id + display name + value),
 // used for top-N breakdowns (people, albums, libraries) where a stable id label
 // keeps series alive across renames.
@@ -35,144 +45,153 @@ type cityKey struct {
 	city, country string
 }
 
+type latlon struct {
+	lat, lon string
+}
+
 // jobQueueStat is one (queue,state) -> count datapoint plus the paused flag.
 type jobQueueStat struct {
 	queue, state string
 	count        float64
 }
 
-// snapshot is the complete set of values from one poll cycle. The collector
-// emits it verbatim on every Prometheus scrape, so a label combination that
-// disappears upstream simply stops being emitted (no stale series).
-type snapshot struct {
-	// exporter self-health
-	serverUp              float64
-	scrapeSuccess         float64
-	scrapeDurationSeconds float64
-	lastSuccessUnix       float64
-	keyIsAdmin            float64
+// aboutInfo mirrors the /server/about fields exported as immich_server_info
+// labels; a typed struct keeps the poller and the label order of dServerInfo
+// aligned at compile time.
+type aboutInfo struct {
+	version, sourceRef, sourceCommit, build,
+	nodejs, exiftool, ffmpeg, imagemagick, libvips string
+	ok bool
+}
 
-	// server / system
-	serverInfo     map[string]string // version, source_ref, source_commit, build, nodejs, exiftool, ffmpeg, imagemagick, libvips
-	serverLicensed float64
-	latestVersion  string
-	updateAvail    float64
-	features       map[string]float64 // feature -> 0/1
-	configTrashDays,
-	configUserDeleteDelayDays,
-	configMinFaces,
-	serverInitialized,
-	serverOnboarded float64
-	hasConfigTrashDays, hasConfigDeleteDelay, hasConfigMinFaces, hasInitialized, hasOnboarded bool
+type healthSnap struct {
+	serverUp, scrapeSuccess, scrapeDurationSeconds, lastSuccessUnix, keyIsAdmin float64
+}
 
-	// storage (volume backing UPLOAD_LOCATION)
-	storageSizeBytes, storageUsedBytes, storageAvailableBytes float64
-	hasStorage                                                bool
+type serverSnap struct {
+	about         aboutInfo
+	licensed      float64
+	latestVersion string
+	updateAvail   float64
+	features      map[string]float64 // feature -> 0/1; keys change across Immich versions, so a map is deliberate
+	trashDays, userDeleteDelayDays, minFaces,
+	initialized, onboarded opt
+	// storage of the volume backing UPLOAD_LOCATION; the three are set together
+	storageSizeBytes, storageUsedBytes, storageAvailableBytes opt
+}
 
-	// assets — instance-wide via /server/statistics (admin) or owner-scoped fallback
-	assets           map[string]float64 // type -> count
-	assetStorage     map[string]float64 // type -> bytes
-	serverUsageBytes float64
-	hasServerUsage   bool
+type assetsSnap struct {
+	byType           map[string]float64 // AssetTypeEnum -> count (instance-wide with admin, owner-scoped otherwise)
+	storageByType    map[string]float64 // AssetTypeEnum -> bytes
+	serverUsageBytes opt
+	byYear           map[string]float64
+	byRating         map[string]float64 // "1".."5","unrated"
+	favorite, archived, hidden, locked, offline,
+	motion, notInAlbum, encoded, trashed opt
+}
 
-	// assets by year
-	assetsByYear map[string]float64
+type camerasSnap struct {
+	makes, models, lenses   opt
+	byMake, byModel, byLens map[string]float64
+}
 
-	// asset state breakdowns (owner-scoped)
-	assetsFavorite, assetsArchived, assetsHidden, assetsLocked,
-	assetsOffline, assetsMotion, assetsNotInAlbum, assetsEncoded, assetsTrashed float64
-	hasFavorite, hasArchived, hasHidden, hasLocked,
-	hasOffline, hasMotion, hasNotInAlbum, hasEncoded, hasTrashed bool
-	assetsByRating map[string]float64 // "1".."5","unrated"
+type geoSnap struct {
+	cities, states, countries, geotagged opt
+	byCountry                            map[string]float64 // country -> count
+	countryCentroids                     map[string]latlon  // centroid of the country's own assets
+	byCity                               map[cityKey]float64
+	cityCentroids                        map[cityKey]latlon
+}
 
-	// cameras / EXIF
-	cameraMakes, cameraModels, lenses          float64
-	hasCameraMakes, hasCameraModels, hasLenses bool
-	assetsByMake                               map[string]float64
-	assetsByModel                              map[string]float64
-	assetsByLens                               map[string]float64
+type peopleSnap struct {
+	total, hidden, named, unnamed, withBirthdate float64
+	ok                                           bool
+	assets                                       []labeledVal // per-person asset counts, top-N
+}
 
-	// geo
-	cities, states, countries          float64
-	hasCities, hasStates, hasCountries bool
-	geotagged                          float64
-	hasGeotagged                       bool
-	assetsByCountry                    map[string]float64   // country -> count
-	geoCentroids                       map[string][2]string // country -> [lat, lon] of its assets
-	assetsByCity                       map[cityKey]float64
-	cityCentroids                      map[cityKey][2]string
+type usersSnap struct {
+	byStatus, byRole map[string]float64
+	ok               bool
+	perUser          []userStat
+}
 
-	// people
-	people, peopleHidden, peopleNamed, peopleUnnamed, peopleWithBirthdate float64
-	hasPeople                                                             bool
-	personAssets                                                          []labeledVal
+type sharedLinksSnap struct {
+	byType                                  map[string]float64
+	expired, neverExpire, passwordProtected float64
+	ok                                      bool
+}
 
-	// users
-	usersByStatus map[string]float64
-	usersByRole   map[string]float64
-	hasUsers      bool
-	perUser       []userStat
+type albumsSnap struct {
+	owned, shared, notShared float64
+	statsOK                  bool // /albums/statistics succeeded
+	sharedCount, privateCount, assetsTotal, empty,
+	withSharedLink, assetsMax, assetsAvg float64
+	ok          bool // /albums succeeded
+	top         []labeledVal
+	sharedLinks sharedLinksSnap
+	partners    map[string]float64 // direction -> count
+}
 
-	// albums / sharing
-	albumsOwned, albumsShared, albumsNotShared float64
-	hasAlbumStats                              bool
-	albumsSharedCount, albumsPrivateCount,
-	albumAssets, albumsEmpty, albumsWithSharedLink,
-	albumAssetsMax, albumAssetsAvg float64
-	hasAlbums bool
-	topAlbums []labeledVal
-
-	sharedLinks                                                              map[string]float64 // type -> count
-	sharedLinksExpired, sharedLinksNeverExpire, sharedLinksPasswordProtected float64
-	hasSharedLinks                                                           bool
-	partners                                                                 map[string]float64 // direction -> count
-
-	// content extras
+type contentSnap struct {
 	tags, tagsRoot                 float64
-	hasTags                        bool
-	memories                       float64
-	hasMemories                    bool
+	tagsOK                         bool
+	memories                       opt
 	duplicateSets, duplicateAssets float64
-	hasDuplicates                  bool
+	duplicatesOK                   bool
 	stacks, stackedAssets          float64
-	hasStacks                      bool
-	libraries                      float64
-	hasLibraries                   bool
+	stacksOK                       bool
+	libraries                      opt
 	perLibrary                     []labeledVal
-	apiKeys                        float64
-	hasAPIKeys                     bool
-	sessions                       float64
-	hasSessions                    bool
-	notificationsUnread            float64
-	hasNotifications               bool
-	notificationsByLevel           map[string]float64
+	apiKeys, sessions              opt
+	notifUnread                    float64
+	notifOK                        bool
+	notifByLevel                   map[string]float64
+}
 
-	// jobs
-	jobQueues      []jobQueueStat
-	jobQueuePaused map[string]float64
+type jobsSnap struct {
+	queues []jobQueueStat
+	paused map[string]float64
+}
+
+// snapshot is the complete set of values from one poll cycle, grouped by the
+// same domains the emit functions use. The collector emits it verbatim on
+// every Prometheus scrape, so a label combination that disappears upstream
+// simply stops being emitted (no stale series).
+type snapshot struct {
+	health  healthSnap
+	server  serverSnap
+	assets  assetsSnap
+	cameras camerasSnap
+	geo     geoSnap
+	people  peopleSnap
+	users   usersSnap
+	albums  albumsSnap
+	content contentSnap
+	jobs    jobsSnap
 }
 
 func newSnapshot() *snapshot {
 	return &snapshot{
-		serverInfo:           map[string]string{},
-		features:             map[string]float64{},
-		assets:               map[string]float64{},
-		assetStorage:         map[string]float64{},
-		assetsByYear:         map[string]float64{},
-		assetsByRating:       map[string]float64{},
-		assetsByMake:         map[string]float64{},
-		assetsByModel:        map[string]float64{},
-		assetsByLens:         map[string]float64{},
-		assetsByCountry:      map[string]float64{},
-		geoCentroids:         map[string][2]string{},
-		assetsByCity:         map[cityKey]float64{},
-		cityCentroids:        map[cityKey][2]string{},
-		usersByStatus:        map[string]float64{},
-		usersByRole:          map[string]float64{},
-		sharedLinks:          map[string]float64{},
-		partners:             map[string]float64{},
-		notificationsByLevel: map[string]float64{},
-		jobQueuePaused:       map[string]float64{},
+		server: serverSnap{features: map[string]float64{}},
+		assets: assetsSnap{
+			byType:        map[string]float64{},
+			storageByType: map[string]float64{},
+			byYear:        map[string]float64{},
+			byRating:      map[string]float64{},
+		},
+		geo: geoSnap{
+			byCountry:        map[string]float64{},
+			countryCentroids: map[string]latlon{},
+			byCity:           map[cityKey]float64{},
+			cityCentroids:    map[cityKey]latlon{},
+		},
+		users: usersSnap{byStatus: map[string]float64{}, byRole: map[string]float64{}},
+		albums: albumsSnap{
+			sharedLinks: sharedLinksSnap{byType: map[string]float64{}},
+			partners:    map[string]float64{},
+		},
+		content: contentSnap{notifByLevel: map[string]float64{}},
+		jobs:    jobsSnap{paused: map[string]float64{}},
 	}
 }
 
@@ -340,10 +359,10 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		emit(ch, dServerUp, 0)
 		return
 	}
-	emit(ch, dExporterUp, s.scrapeSuccess)
-	emit(ch, dScrapeDuration, s.scrapeDurationSeconds)
-	emit(ch, dLastSuccess, s.lastSuccessUnix)
-	emit(ch, dKeyIsAdmin, s.keyIsAdmin)
+	emit(ch, dExporterUp, s.health.scrapeSuccess)
+	emit(ch, dScrapeDuration, s.health.scrapeDurationSeconds)
+	emit(ch, dLastSuccess, s.health.lastSuccessUnix)
+	emit(ch, dKeyIsAdmin, s.health.keyIsAdmin)
 
 	emitServer(ch, s)
 	emitAssets(ch, s)
@@ -360,199 +379,198 @@ func emit(ch chan<- prometheus.Metric, d *prometheus.Desc, v float64, lv ...stri
 	ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, lv...)
 }
 
-func emitOpt(ch chan<- prometheus.Metric, d *prometheus.Desc, v float64, ok bool) {
-	if ok {
-		emit(ch, d, v)
+func emitOpt(ch chan<- prometheus.Metric, d *prometheus.Desc, o opt) {
+	if o.ok {
+		emit(ch, d, o.v)
 	}
 }
 
 func emitServer(ch chan<- prometheus.Metric, s *snapshot) {
-	emit(ch, dServerUp, s.serverUp)
-	if len(s.serverInfo) > 0 {
-		si := s.serverInfo
-		emit(ch, dServerInfo, 1, si["version"], si["source_ref"], si["source_commit"], si["build"],
-			si["nodejs"], si["exiftool"], si["ffmpeg"], si["imagemagick"], si["libvips"])
+	sv := &s.server
+	emit(ch, dServerUp, s.health.serverUp)
+	if a := sv.about; a.ok {
+		emit(ch, dServerInfo, 1, a.version, a.sourceRef, a.sourceCommit, a.build,
+			a.nodejs, a.exiftool, a.ffmpeg, a.imagemagick, a.libvips)
 	}
-	emit(ch, dServerLicensed, s.serverLicensed)
-	if s.latestVersion != "" {
-		emit(ch, dLatestVersion, 1, s.latestVersion)
-		emit(ch, dUpdateAvailable, s.updateAvail)
+	emit(ch, dServerLicensed, sv.licensed)
+	if sv.latestVersion != "" {
+		emit(ch, dLatestVersion, 1, sv.latestVersion)
+		emit(ch, dUpdateAvailable, sv.updateAvail)
 	}
-	for f, v := range s.features {
+	for f, v := range sv.features {
 		emit(ch, dFeature, v, f)
 	}
-	emitOpt(ch, dConfigTrashDays, s.configTrashDays, s.hasConfigTrashDays)
-	emitOpt(ch, dConfigDelDelay, s.configUserDeleteDelayDays, s.hasConfigDeleteDelay)
-	emitOpt(ch, dConfigMinFaces, s.configMinFaces, s.hasConfigMinFaces)
-	emitOpt(ch, dInitialized, s.serverInitialized, s.hasInitialized)
-	emitOpt(ch, dOnboarded, s.serverOnboarded, s.hasOnboarded)
-	if s.hasStorage {
-		emit(ch, dStorageSize, s.storageSizeBytes)
-		emit(ch, dStorageUsed, s.storageUsedBytes)
-		emit(ch, dStorageAvail, s.storageAvailableBytes)
-	}
+	emitOpt(ch, dConfigTrashDays, sv.trashDays)
+	emitOpt(ch, dConfigDelDelay, sv.userDeleteDelayDays)
+	emitOpt(ch, dConfigMinFaces, sv.minFaces)
+	emitOpt(ch, dInitialized, sv.initialized)
+	emitOpt(ch, dOnboarded, sv.onboarded)
+	emitOpt(ch, dStorageSize, sv.storageSizeBytes)
+	emitOpt(ch, dStorageUsed, sv.storageUsedBytes)
+	emitOpt(ch, dStorageAvail, sv.storageAvailableBytes)
 }
 
 func emitAssets(ch chan<- prometheus.Metric, s *snapshot) {
-	for t, v := range s.assets {
+	a := &s.assets
+	for t, v := range a.byType {
 		emit(ch, dAssets, v, t)
 	}
-	for t, v := range s.assetStorage {
+	for t, v := range a.storageByType {
 		emit(ch, dAssetStorage, v, t)
 	}
-	emitOpt(ch, dServerUsage, s.serverUsageBytes, s.hasServerUsage)
-	for y, v := range s.assetsByYear {
+	emitOpt(ch, dServerUsage, a.serverUsageBytes)
+	for y, v := range a.byYear {
 		emit(ch, dAssetsByYear, v, y)
 	}
-	for r, v := range s.assetsByRating {
+	for r, v := range a.byRating {
 		emit(ch, dAssetsByRate, v, r)
 	}
-	emitOpt(ch, dFavorite, s.assetsFavorite, s.hasFavorite)
-	emitOpt(ch, dArchived, s.assetsArchived, s.hasArchived)
-	emitOpt(ch, dHidden, s.assetsHidden, s.hasHidden)
-	emitOpt(ch, dLocked, s.assetsLocked, s.hasLocked)
-	emitOpt(ch, dOffline, s.assetsOffline, s.hasOffline)
-	emitOpt(ch, dMotion, s.assetsMotion, s.hasMotion)
-	emitOpt(ch, dNotInAlbum, s.assetsNotInAlbum, s.hasNotInAlbum)
-	emitOpt(ch, dEncoded, s.assetsEncoded, s.hasEncoded)
-	emitOpt(ch, dTrashed, s.assetsTrashed, s.hasTrashed)
+	emitOpt(ch, dFavorite, a.favorite)
+	emitOpt(ch, dArchived, a.archived)
+	emitOpt(ch, dHidden, a.hidden)
+	emitOpt(ch, dLocked, a.locked)
+	emitOpt(ch, dOffline, a.offline)
+	emitOpt(ch, dMotion, a.motion)
+	emitOpt(ch, dNotInAlbum, a.notInAlbum)
+	emitOpt(ch, dEncoded, a.encoded)
+	emitOpt(ch, dTrashed, a.trashed)
 }
 
 func emitCameras(ch chan<- prometheus.Metric, s *snapshot) {
-	emitOpt(ch, dCameraMakes, s.cameraMakes, s.hasCameraMakes)
-	emitOpt(ch, dCameraModels, s.cameraModels, s.hasCameraModels)
-	emitOpt(ch, dLenses, s.lenses, s.hasLenses)
-	for k, v := range s.assetsByMake {
+	c := &s.cameras
+	emitOpt(ch, dCameraMakes, c.makes)
+	emitOpt(ch, dCameraModels, c.models)
+	emitOpt(ch, dLenses, c.lenses)
+	for k, v := range c.byMake {
 		emit(ch, dAssetsByMake, v, k)
 	}
-	for k, v := range s.assetsByModel {
+	for k, v := range c.byModel {
 		emit(ch, dAssetsByModel, v, k)
 	}
-	for k, v := range s.assetsByLens {
+	for k, v := range c.byLens {
 		emit(ch, dAssetsByLens, v, k)
 	}
 }
 
 func emitGeo(ch chan<- prometheus.Metric, s *snapshot) {
-	emitOpt(ch, dCities, s.cities, s.hasCities)
-	emitOpt(ch, dStates, s.states, s.hasStates)
-	emitOpt(ch, dCountries, s.countries, s.hasCountries)
-	emitOpt(ch, dGeotagged, s.geotagged, s.hasGeotagged)
-	for k, v := range s.assetsByCountry {
-		lat, lon := "", ""
-		if cc, ok := s.geoCentroids[k]; ok {
-			lat, lon = cc[0], cc[1]
-		}
-		emit(ch, dAssetsByCountry, v, k, lat, lon)
+	g := &s.geo
+	emitOpt(ch, dCities, g.cities)
+	emitOpt(ch, dStates, g.states)
+	emitOpt(ch, dCountries, g.countries)
+	emitOpt(ch, dGeotagged, g.geotagged)
+	for k, v := range g.byCountry {
+		c := g.countryCentroids[k]
+		emit(ch, dAssetsByCountry, v, k, c.lat, c.lon)
 	}
-	for k, v := range s.assetsByCity {
-		lat, lon := "", ""
-		if cc, ok := s.cityCentroids[k]; ok {
-			lat, lon = cc[0], cc[1]
-		}
-		emit(ch, dAssetsByCity, v, k.city, k.country, lat, lon)
+	for k, v := range g.byCity {
+		c := g.cityCentroids[k]
+		emit(ch, dAssetsByCity, v, k.city, k.country, c.lat, c.lon)
 	}
 }
 
 func emitPeople(ch chan<- prometheus.Metric, s *snapshot) {
-	if s.hasPeople {
-		emit(ch, dPeople, s.people)
-		emit(ch, dPeopleHidden, s.peopleHidden)
-		emit(ch, dPeopleNamed, s.peopleNamed)
-		emit(ch, dPeopleUnnamed, s.peopleUnnamed)
-		emit(ch, dPeopleBirthdate, s.peopleWithBirthdate)
+	p := &s.people
+	if p.ok {
+		emit(ch, dPeople, p.total)
+		emit(ch, dPeopleHidden, p.hidden)
+		emit(ch, dPeopleNamed, p.named)
+		emit(ch, dPeopleUnnamed, p.unnamed)
+		emit(ch, dPeopleBirthdate, p.withBirthdate)
 	}
-	for _, p := range s.personAssets {
-		emit(ch, dPersonAssets, p.value, p.id, p.name)
+	for _, pe := range p.assets {
+		emit(ch, dPersonAssets, pe.value, pe.id, pe.name)
 	}
 }
 
 func emitUsers(ch chan<- prometheus.Metric, s *snapshot) {
-	if s.hasUsers {
-		for st, v := range s.usersByStatus {
+	u := &s.users
+	if u.ok {
+		for st, v := range u.byStatus {
 			emit(ch, dUsers, v, st)
 		}
-		for r, v := range s.usersByRole {
+		for r, v := range u.byRole {
 			emit(ch, dUsersByRole, v, r)
 		}
 	}
-	for _, u := range s.perUser {
-		emit(ch, dUserPhotos, u.photos, u.id, u.name)
-		emit(ch, dUserVideos, u.videos, u.id, u.name)
-		emit(ch, dUserUsage, u.usageBytes, u.id, u.name)
-		if u.quotaUnlimited {
-			emit(ch, dUserUnlim, 1, u.id, u.name)
+	for _, us := range u.perUser {
+		emit(ch, dUserPhotos, us.photos, us.id, us.name)
+		emit(ch, dUserVideos, us.videos, us.id, us.name)
+		emit(ch, dUserUsage, us.usageBytes, us.id, us.name)
+		if us.quotaUnlimited {
+			emit(ch, dUserUnlim, 1, us.id, us.name)
 		} else {
-			emit(ch, dUserUnlim, 0, u.id, u.name)
-			emit(ch, dUserQuota, u.quotaBytes, u.id, u.name)
+			emit(ch, dUserUnlim, 0, us.id, us.name)
+			emit(ch, dUserQuota, us.quotaBytes, us.id, us.name)
 		}
 	}
 }
 
 func emitAlbums(ch chan<- prometheus.Metric, s *snapshot) {
-	if s.hasAlbumStats {
-		emit(ch, dAlbumsOwned, s.albumsOwned)
-		emit(ch, dAlbumsSharedSt, s.albumsShared)
-		emit(ch, dAlbumsNotShared, s.albumsNotShared)
+	a := &s.albums
+	if a.statsOK {
+		emit(ch, dAlbumsOwned, a.owned)
+		emit(ch, dAlbumsSharedSt, a.shared)
+		emit(ch, dAlbumsNotShared, a.notShared)
 	}
-	if s.hasAlbums {
-		emit(ch, dAlbums, s.albumsSharedCount, "true")
-		emit(ch, dAlbums, s.albumsPrivateCount, "false")
-		emit(ch, dAlbumAssets, s.albumAssets)
-		emit(ch, dAlbumsEmpty, s.albumsEmpty)
-		emit(ch, dAlbumsWithLink, s.albumsWithSharedLink)
-		emit(ch, dAlbumMax, s.albumAssetsMax)
-		emit(ch, dAlbumAvg, s.albumAssetsAvg)
+	if a.ok {
+		emit(ch, dAlbums, a.sharedCount, "true")
+		emit(ch, dAlbums, a.privateCount, "false")
+		emit(ch, dAlbumAssets, a.assetsTotal)
+		emit(ch, dAlbumsEmpty, a.empty)
+		emit(ch, dAlbumsWithLink, a.withSharedLink)
+		emit(ch, dAlbumMax, a.assetsMax)
+		emit(ch, dAlbumAvg, a.assetsAvg)
 	}
-	for _, a := range s.topAlbums {
-		emit(ch, dTopAlbum, a.value, a.id, a.name)
+	for _, al := range a.top {
+		emit(ch, dTopAlbum, al.value, al.id, al.name)
 	}
-	if s.hasSharedLinks {
-		for t, v := range s.sharedLinks {
+	if sl := &a.sharedLinks; sl.ok {
+		for t, v := range sl.byType {
 			emit(ch, dSharedLinks, v, t)
 		}
-		emit(ch, dSharedLinksExp, s.sharedLinksExpired)
-		emit(ch, dSharedLinksNever, s.sharedLinksNeverExpire)
-		emit(ch, dSharedLinksPwd, s.sharedLinksPasswordProtected)
+		emit(ch, dSharedLinksExp, sl.expired)
+		emit(ch, dSharedLinksNever, sl.neverExpire)
+		emit(ch, dSharedLinksPwd, sl.passwordProtected)
 	}
-	for dir, v := range s.partners {
+	for dir, v := range a.partners {
 		emit(ch, dPartners, v, dir)
 	}
 }
 
 func emitContent(ch chan<- prometheus.Metric, s *snapshot) {
-	if s.hasTags {
-		emit(ch, dTags, s.tags)
-		emit(ch, dTagsRoot, s.tagsRoot)
+	c := &s.content
+	if c.tagsOK {
+		emit(ch, dTags, c.tags)
+		emit(ch, dTagsRoot, c.tagsRoot)
 	}
-	emitOpt(ch, dMemories, s.memories, s.hasMemories)
-	if s.hasDuplicates {
-		emit(ch, dDupSets, s.duplicateSets)
-		emit(ch, dDupAssets, s.duplicateAssets)
+	emitOpt(ch, dMemories, c.memories)
+	if c.duplicatesOK {
+		emit(ch, dDupSets, c.duplicateSets)
+		emit(ch, dDupAssets, c.duplicateAssets)
 	}
-	if s.hasStacks {
-		emit(ch, dStacks, s.stacks)
-		emit(ch, dStackedAssets, s.stackedAssets)
+	if c.stacksOK {
+		emit(ch, dStacks, c.stacks)
+		emit(ch, dStackedAssets, c.stackedAssets)
 	}
-	emitOpt(ch, dLibraries, s.libraries, s.hasLibraries)
-	for _, l := range s.perLibrary {
+	emitOpt(ch, dLibraries, c.libraries)
+	for _, l := range c.perLibrary {
 		emit(ch, dLibAssets, l.value, l.id, l.name)
 	}
-	emitOpt(ch, dAPIKeys, s.apiKeys, s.hasAPIKeys)
-	emitOpt(ch, dSessions, s.sessions, s.hasSessions)
-	if s.hasNotifications {
-		emit(ch, dNotifUnread, s.notificationsUnread)
-		for lvl, v := range s.notificationsByLevel {
+	emitOpt(ch, dAPIKeys, c.apiKeys)
+	emitOpt(ch, dSessions, c.sessions)
+	if c.notifOK {
+		emit(ch, dNotifUnread, c.notifUnread)
+		for lvl, v := range c.notifByLevel {
 			emit(ch, dNotifByLevel, v, lvl)
 		}
 	}
 }
 
 func emitJobs(ch chan<- prometheus.Metric, s *snapshot) {
-	for _, jq := range s.jobQueues {
+	for _, jq := range s.jobs.queues {
 		emit(ch, dJobQueue, jq.count, jq.queue, jq.state)
 	}
-	for q, v := range s.jobQueuePaused {
+	for q, v := range s.jobs.paused {
 		emit(ch, dJobQueuePaused, v, q)
 	}
 }

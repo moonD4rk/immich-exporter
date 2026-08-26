@@ -1,8 +1,8 @@
-# golangci-lint v2 configuration for immich-exporter (Go 1.26).
+# golangci-lint v2 configuration for immich-exporter (Go 1.27).
 version: "2"
 
 run:
-  go: "1.26"
+  go: "1.27"
   timeout: 5m
   allow-parallel-runners: true
 
@@ -124,7 +124,8 @@ formatters:
     - goimports
   settings:
     gofumpt:
-      extra-rules: true
+      extra:
+        group-params: true
     goimports:
       local-prefixes:
         - github.com/moond4rk/immich-exporter
