@@ -408,7 +408,11 @@ func TestCollectVersionCheck(t *testing.T) {
 		{"same version", "v3.1.0", "v3.1.0", 0},
 		{"older release (lagging check)", "v3.0.1", "v2.5.6", 0},
 		{"numeric not lexicographic", "v3.9.0", "v3.10.0", 1},
-		{"prerelease suffix ignored", "v3.1.0", "v3.2.0-rc.1", 1},
+		{"newer prerelease upstream", "v3.1.0", "v3.2.0-rc.1", 1},
+		{"stable supersedes running prerelease", "v3.2.0-rc.1", "v3.2.0", 1},
+		{"same prerelease", "v3.2.0-rc.1", "v3.2.0-rc.1", 0},
+		{"prerelease of running stable", "v3.2.0", "v3.2.0-rc.1", 0},
+		{"build metadata ignored", "v3.2.0+abc", "v3.2.0", 0},
 		{"unparseable release", "v3.1.0", "nightly", 0},
 		{"unknown running version", "", "v3.1.0", 0},
 	}
@@ -488,6 +492,34 @@ func TestCollectAssetStates(t *testing.T) {
 				s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
 		}
 	})
+}
+
+// A key with library.read but not library.statistics must leave that library's
+// sample absent (never a false zero) while the library count is still reported.
+func TestCollectLibrariesStatisticsForbidden(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /libraries", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, []map[string]any{{"id": "l1", "name": "A"}, {"id": "l2", "name": "B"}})
+	})
+	mux.HandleFunc("GET /libraries/l1/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	})
+	mux.HandleFunc("GET /libraries/l2/statistics", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"total": 42})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p, _ := testPoller(srv)
+	s := newSnapshot()
+	if err := p.collectLibraries(context.Background(), s); err != nil {
+		t.Fatalf("a 403 on one library's statistics must not fail the collector: %v", err)
+	}
+	if !s.content.libraries.ok || s.content.libraries.v != 2 {
+		t.Errorf("libraries = %v (present=%v), want 2", s.content.libraries.v, s.content.libraries.ok)
+	}
+	if len(s.content.perLibrary) != 1 || s.content.perLibrary[0].id != "l2" || s.content.perLibrary[0].value != 42 {
+		t.Errorf("perLibrary = %+v, want only l2=42", s.content.perLibrary)
+	}
 }
 
 // collectJobs must fall back to the deprecated /jobs map when /queues is absent

@@ -205,10 +205,13 @@ func (p *poller) collectVersionCheck(ctx context.Context, s *snapshot) error {
 	}
 	s.server.latestVersion = vc.ReleaseVersion
 	// version-check can lag and report a release OLDER than the running server;
-	// only a strictly newer release counts as an available update.
-	if release, ok := parseSemver(vc.ReleaseVersion); ok {
-		if running, ok := parseSemver(s.server.about.version); ok && semverGreater(release, running) {
-			s.server.updateAvail = 1
+	// only a strictly newer release counts as an available update. A stable
+	// release also supersedes a running pre-release of the same core version.
+	if release, relPre, ok := parseSemver(vc.ReleaseVersion); ok {
+		if running, runPre, ok := parseSemver(s.server.about.version); ok {
+			if semverGreater(release, running) || (release == running && runPre && !relPre) {
+				s.server.updateAvail = 1
+			}
 		}
 	}
 	return nil
@@ -862,24 +865,25 @@ func (p *poller) collectMemories(ctx context.Context, s *snapshot) error {
 
 func (p *poller) collectLibraries(ctx context.Context, s *snapshot) error {
 	var libs []struct {
-		ID         string  `json:"id"`
-		Name       string  `json:"name"`
-		AssetCount float64 `json:"assetCount"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
 	if err := p.c.Get(ctx, "/libraries", &libs); err != nil {
 		return err
 	}
 	s.content.libraries = set(float64(len(libs)))
 	for _, l := range libs {
-		// Immich v3 stopped populating assetCount in the list response; statistics is authoritative.
-		count := l.AssetCount
+		// The list's assetCount is always 0 on v3; only /statistics is authoritative.
 		var st struct {
 			Total float64 `json:"total"`
 		}
-		if err := p.c.Get(ctx, "/libraries/"+l.ID+"/statistics", &st); err == nil {
-			count = st.Total
+		if err := p.c.Get(ctx, "/libraries/"+l.ID+"/statistics", &st); err != nil {
+			if isSoftStatus(err) {
+				continue // key lacks library.statistics: leave the sample absent, never a false zero
+			}
+			return err
 		}
-		s.content.perLibrary = append(s.content.perLibrary, labeledVal{id: l.ID, name: l.Name, value: count})
+		s.content.perLibrary = append(s.content.perLibrary, labeledVal{id: l.ID, name: l.Name, value: st.Total})
 	}
 	return nil
 }
@@ -965,26 +969,31 @@ func boolf(b bool) float64 {
 	return 0
 }
 
-// parseSemver reads "v1.2.3" (pre-release/build suffix on the last field
-// ignored) into numeric fields; ok=false means the comparison is unknowable,
-// and callers must not report an update rather than risk a false positive.
-func parseSemver(v string) (parts [3]int, ok bool) {
+// parseSemver reads "v1.2.3[-pre][+build]" into numeric core fields plus a
+// pre-release flag (build metadata never affects precedence). ok=false means
+// the comparison is unknowable, and callers must not report an update rather
+// than risk a false positive.
+func parseSemver(v string) (parts [3]int, pre, ok bool) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if i := strings.IndexAny(v, "-+"); i >= 0 {
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		pre = true
 		v = v[:i]
 	}
 	fields := strings.Split(v, ".")
 	if len(fields) == 0 || len(fields) > 3 || fields[0] == "" {
-		return parts, false
+		return parts, pre, false
 	}
 	for i, f := range fields {
 		n, err := strconv.Atoi(f)
 		if err != nil || n < 0 {
-			return parts, false
+			return parts, pre, false
 		}
 		parts[i] = n
 	}
-	return parts, true
+	return parts, pre, true
 }
 
 func semverGreater(a, b [3]int) bool {

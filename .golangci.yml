@@ -1,4 +1,4 @@
-# golangci-lint v2 configuration for immich-exporter (Go 1.26).
+# golangci-lint v2 configuration for immich-exporter (Go 1.27).
 version: "2"
 
 run:
