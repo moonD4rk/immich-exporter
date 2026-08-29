@@ -147,3 +147,28 @@ func renderText(t *testing.T, g prometheus.Gatherer) string {
 	}
 	return b.String()
 }
+
+func TestDescribeCoversEveryDesc(t *testing.T) {
+	ch := make(chan *prometheus.Desc, 256)
+	(&collector{}).Describe(ch)
+	close(ch)
+	var n int
+	for range ch {
+		n++
+	}
+	if n != len(allDescs) || n < 80 {
+		t.Fatalf("Describe sent %d descs, allDescs has %d", n, len(allDescs))
+	}
+}
+
+func TestEmitLabelMismatchDoesNotPanic(t *testing.T) {
+	ch := make(chan prometheus.Metric, 1)
+	emit(ch, dAssets, 1) // dAssets needs one label
+	if len(ch) != 0 {
+		t.Fatal("mismatched sample should be dropped")
+	}
+	emit(ch, dAssets, 1, "IMAGE")
+	if len(ch) != 1 {
+		t.Fatal("well-formed sample should be emitted")
+	}
+}
