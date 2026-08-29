@@ -5,12 +5,13 @@ package immich
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -47,12 +48,7 @@ func StatusIs(err error, codes ...int) bool {
 	if !errors.As(err, &ae) {
 		return false
 	}
-	for _, c := range codes {
-		if ae.Status == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(codes, ae.Status)
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
@@ -86,7 +82,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.UnmarshalRead(resp.Body, out)
 }
 
 // Get issues a GET and decodes the JSON response into out (nil to discard).
@@ -119,11 +115,5 @@ func (c *Client) Suggest(ctx context.Context, typ string) ([]string, error) {
 	if err := c.Get(ctx, "/search/suggestions?type="+url.QueryEscape(typ), &out); err != nil {
 		return nil, err
 	}
-	vals := out[:0]
-	for _, v := range out {
-		if strings.TrimSpace(v) != "" {
-			vals = append(vals, v)
-		}
-	}
-	return vals, nil
+	return slices.DeleteFunc(out, func(v string) bool { return strings.TrimSpace(v) == "" }), nil
 }

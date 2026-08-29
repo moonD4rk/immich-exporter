@@ -2,7 +2,7 @@ package exporter
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -16,7 +16,7 @@ import (
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.MarshalWrite(w, v)
 }
 
 // searchStatsTotal returns a deterministic count for a StatisticsSearchDto body
@@ -100,7 +100,7 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 	})
 	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.UnmarshalRead(r.Body, &body)
 		// The PIN-protected locked folder rejects API-key access on real Immich;
 		// this must not abort the other per-state counts.
 		if body["visibility"] == "locked" {
@@ -447,7 +447,7 @@ func assetStatesSrv(t *testing.T, lockedForbidden bool) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.UnmarshalRead(r.Body, &body)
 		if lockedForbidden && body["visibility"] == "locked" {
 			http.Error(w, `{"message":"Elevated permission is required"}`, http.StatusUnauthorized)
 			return
