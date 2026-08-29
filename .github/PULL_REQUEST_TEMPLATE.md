@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] `gofmt -l .` prints nothing
+- [ ] `go mod tidy -diff` and `go fix -diff ./...` print nothing
 - [ ] `go vet ./...` passes
 - [ ] `golangci-lint run` passes
 - [ ] `go test -race ./...` passes

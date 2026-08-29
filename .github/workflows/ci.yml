@@ -8,18 +8,24 @@ on:
 
 permissions:
   contents: read
-  id-token: write # required for Codecov OIDC (tokenless) upload
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  go:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for Codecov OIDC (tokenless) upload
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go mod tidy
+        run: go mod tidy -diff
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -31,9 +37,56 @@ jobs:
       - name: test
         run: go test -race -coverprofile=coverage.out ./...
       - name: upload coverage
+        # Fork PRs get no OIDC token; skip the upload instead of failing CI.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@v7
         with:
           use_oidc: true
           files: ./coverage.out
           fail_ci_if_error: true
           flags: unittests
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - uses: docker/setup-buildx-action@v4
+      - name: build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: immich-exporter:ci
+          build-args: VERSION=ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: smoke test
+        run: docker run --rm immich-exporter:ci --version
+
+  release-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: goreleaser check
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
