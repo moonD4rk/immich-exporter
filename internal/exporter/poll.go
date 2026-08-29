@@ -1,9 +1,11 @@
 package exporter
 
 import (
+	"cmp"
 	"context"
+	"iter"
 	"log/slog"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,9 +48,17 @@ type breakdownData struct {
 	personAssets []labeledVal
 }
 
-type personRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+type person struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	BirthDate *string `json:"birthDate"`
+}
+
+type peoplePage struct {
+	People      []person `json:"people"`
+	HasNextPage bool     `json:"hasNextPage"`
+	Total       float64  `json:"total"`
+	Hidden      float64  `json:"hidden"`
 }
 
 // run polls the Immich API every interval until the context is canceled. The
@@ -109,12 +119,13 @@ func (p *poller) poll(parent context.Context) {
 		soft("geo", p.collectGeo(ctx, s))
 	}
 
-	hard("people", p.collectPeople(ctx, s))
+	people, err := p.collectPeople(ctx, s)
+	hard("people", err)
 
 	// Slow tier: refresh expensive fan-outs only every breakdownInterval and
 	// carry the last result forward into this snapshot.
 	if p.bd == nil || time.Since(p.lastBreakdown) >= p.cfg.BreakdownInterval {
-		p.bd = p.collectBreakdowns(ctx, soft)
+		p.bd = p.collectBreakdowns(ctx, soft, people)
 		p.lastBreakdown = time.Now()
 	}
 	applyBreakdown(s, p.bd)
@@ -409,14 +420,15 @@ func (p *poller) collectYears(ctx context.Context, s *snapshot) error {
 // collectBreakdowns runs the expensive fan-out collectors into a fresh
 // breakdownData. A failed sub-collector leaves its section empty (consistent
 // with the "no stale values on failure" policy); between refreshes the last
-// good result is carried forward by the caller.
-func (p *poller) collectBreakdowns(ctx context.Context, soft func(string, error)) *breakdownData {
+// good result is carried forward by the caller. people is the list already
+// fetched by collectPeople this poll (nil when that fetch failed).
+func (p *poller) collectBreakdowns(ctx context.Context, soft func(string, error), people []person) *breakdownData {
 	bd := &breakdownData{}
 	if p.cfg.CollectCamera {
 		soft("cameras", p.collectCameras(ctx, bd))
 	}
 	if p.cfg.CollectPeople {
-		soft("people/stats", p.collectPersonStats(ctx, bd))
+		p.collectPersonStats(ctx, people, bd)
 	}
 	return bd
 }
@@ -464,27 +476,22 @@ func (p *poller) fanout(ctx context.Context, values []string, field string, n in
 		slog.Warn("fanout skipped: too many distinct values", "field", field, "values", len(values), "limit", p.cfg.FanoutLimit)
 		return nil
 	}
-	sem := make(chan struct{}, p.cfg.FanoutConcurrency)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	m := make(map[string]float64, len(values))
-	for _, v := range values {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(v string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			c, err := p.c.StatTotal(ctx, map[string]any{field: v})
-			if err != nil {
-				slog.Warn("fanout call failed", "field", field, "value", v, "err", err)
-				return
-			}
-			mu.Lock()
-			m[v] = c
-			mu.Unlock()
-		}(v)
+	type kv struct {
+		k string
+		v float64
 	}
-	wg.Wait()
+	counts := parallel(values, p.cfg.FanoutConcurrency, func(v string) (kv, bool) {
+		c, err := p.c.StatTotal(ctx, map[string]any{field: v})
+		if err != nil {
+			slog.Warn("fanout call failed", "field", field, "value", v, "err", err)
+			return kv{}, false
+		}
+		return kv{v, c}, true
+	})
+	m := make(map[string]float64, len(counts))
+	for _, e := range counts {
+		m[e.k] = e.v
+	}
 	return topNWithOther(m, n)
 }
 
@@ -562,94 +569,66 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	return nil
 }
 
-func (p *poller) collectPeople(ctx context.Context, s *snapshot) error {
-	var named, withBirthdate float64
-	page := 1
-	for {
-		var resp struct {
-			People []struct {
-				Name      string  `json:"name"`
-				BirthDate *string `json:"birthDate"`
-			} `json:"people"`
-			HasNextPage bool    `json:"hasNextPage"`
-			Total       float64 `json:"total"`
-			Hidden      float64 `json:"hidden"`
+// peoplePages walks GET /people one page at a time. The first error is yielded
+// and ends the walk, as does the last page or the caller breaking out.
+func (p *poller) peoplePages(ctx context.Context) iter.Seq2[peoplePage, error] {
+	return func(yield func(peoplePage, error) bool) {
+		for page := 1; ; page++ {
+			var pg peoplePage
+			err := p.c.Get(ctx, "/people?withHidden=true&size=1000&page="+strconv.Itoa(page), &pg)
+			if !yield(pg, err) || err != nil || !pg.HasNextPage || len(pg.People) == 0 {
+				return
+			}
 		}
-		if err := p.c.Get(ctx, "/people?withHidden=true&size=1000&page="+strconv.Itoa(page), &resp); err != nil {
-			return err
+	}
+}
+
+// collectPeople fills the people counts and returns the full list so the
+// slow-tier person breakdown can reuse it instead of paging /people again.
+func (p *poller) collectPeople(ctx context.Context, s *snapshot) ([]person, error) {
+	var all []person
+	for pg, err := range p.peoplePages(ctx) {
+		if err != nil {
+			return nil, err
 		}
-		if page == 1 {
-			s.people.total, s.people.hidden = resp.Total, resp.Hidden
+		if !s.people.ok {
+			s.people.total, s.people.hidden = pg.Total, pg.Hidden
 			s.people.ok = true
 		}
-		for _, pe := range resp.People {
-			if strings.TrimSpace(pe.Name) != "" {
-				named++
-			}
-			if pe.BirthDate != nil {
-				withBirthdate++
-			}
+		all = append(all, pg.People...)
+	}
+	var named, withBirthdate float64
+	for _, pe := range all {
+		if strings.TrimSpace(pe.Name) != "" {
+			named++
 		}
-		if !resp.HasNextPage || len(resp.People) == 0 {
-			break
+		if pe.BirthDate != nil {
+			withBirthdate++
 		}
-		page++
 	}
 	s.people.named = named
 	s.people.unnamed = s.people.total - named
 	s.people.withBirthdate = withBirthdate
-	return nil
+	return all, nil
 }
 
-func (p *poller) collectPersonStats(ctx context.Context, bd *breakdownData) error {
-	var ids []personRef
-	page := 1
-	for len(ids) < p.cfg.FanoutLimit {
-		var resp struct {
-			People      []personRef `json:"people"`
-			HasNextPage bool        `json:"hasNextPage"`
+func (p *poller) collectPersonStats(ctx context.Context, people []person, bd *breakdownData) {
+	// Cap to FanoutLimit, matching the bound fanout() enforces for cameras.
+	people = people[:min(len(people), p.cfg.FanoutLimit)]
+	vals := parallel(people, p.cfg.FanoutConcurrency, func(pe person) (labeledVal, bool) {
+		var st struct {
+			Assets float64 `json:"assets"`
 		}
-		if err := p.c.Get(ctx, "/people?withHidden=true&size=1000&page="+strconv.Itoa(page), &resp); err != nil {
-			return err
+		if err := p.c.Get(ctx, "/people/"+pe.ID+"/statistics", &st); err != nil {
+			return labeledVal{}, false
 		}
-		ids = append(ids, resp.People...)
-		if !resp.HasNextPage || len(resp.People) == 0 {
-			break
+		name := pe.Name
+		if name == "" {
+			name = "(unnamed)"
 		}
-		page++
-	}
-	// Cap to FanoutLimit: a full last page can overshoot it (the camera fanout() helper enforces the same bound).
-	if len(ids) > p.cfg.FanoutLimit {
-		ids = ids[:p.cfg.FanoutLimit]
-	}
-	sem := make(chan struct{}, p.cfg.FanoutConcurrency)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	vals := make([]labeledVal, 0, len(ids))
-	for _, pe := range ids {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(pe personRef) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			var st struct {
-				Assets float64 `json:"assets"`
-			}
-			if err := p.c.Get(ctx, "/people/"+pe.ID+"/statistics", &st); err != nil {
-				return
-			}
-			name := pe.Name
-			if name == "" {
-				name = "(unnamed)"
-			}
-			mu.Lock()
-			vals = append(vals, labeledVal{id: pe.ID, name: name, value: st.Assets})
-			mu.Unlock()
-		}(pe)
-	}
-	wg.Wait()
+		return labeledVal{id: pe.ID, name: name, value: st.Assets}, true
+	})
 	bd.personAssets = topNLabeled(vals, p.cfg.TopN)
-	return nil
 }
 
 func (p *poller) collectUsers(ctx context.Context, s *snapshot) error {
@@ -958,6 +937,28 @@ func (p *poller) collectStacks(ctx context.Context, s *snapshot) error {
 
 // --- helpers ---
 
+// parallel applies fn to every item with at most limit goroutines in flight
+// and returns the results fn accepted, in completion order.
+func parallel[T, R any](items []T, limit int, fn func(T) (R, bool)) []R {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	sem := make(chan struct{}, limit)
+	out := make([]R, 0, len(items))
+	for _, it := range items {
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			if r, ok := fn(it); ok {
+				mu.Lock()
+				out = append(out, r)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	return out
+}
+
 // isSoftStatus reports HTTP failures treated as "optional/expected": 401/403
 // (permission- or elevated-auth-gated) and 404 (endpoint absent on this version).
 func isSoftStatus(err error) bool { return immich.StatusIs(err, 401, 403, 404) }
@@ -975,13 +976,8 @@ func boolf(b bool) float64 {
 // than risk a false positive.
 func parseSemver(v string) (parts [3]int, pre, ok bool) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if i := strings.IndexByte(v, '+'); i >= 0 {
-		v = v[:i]
-	}
-	if i := strings.IndexByte(v, '-'); i >= 0 {
-		pre = true
-		v = v[:i]
-	}
+	v, _, _ = strings.Cut(v, "+")
+	v, _, pre = strings.Cut(v, "-")
 	fields := strings.Split(v, ".")
 	if len(fields) == 0 || len(fields) > 3 || fields[0] == "" {
 		return parts, pre, false
@@ -1032,11 +1028,8 @@ func topNWithOther(m map[string]float64, n int) map[string]float64 {
 	for k, v := range m {
 		arr = append(arr, kv{k, v})
 	}
-	sort.Slice(arr, func(i, j int) bool {
-		if arr[i].v != arr[j].v {
-			return arr[i].v > arr[j].v
-		}
-		return arr[i].k < arr[j].k
+	slices.SortFunc(arr, func(a, b kv) int {
+		return cmp.Or(cmp.Compare(b.v, a.v), cmp.Compare(a.k, b.k))
 	})
 	out := make(map[string]float64, n+1)
 	var other float64
@@ -1054,11 +1047,8 @@ func topNWithOther(m map[string]float64, n int) map[string]float64 {
 }
 
 func topNLabeled(vals []labeledVal, n int) []labeledVal {
-	sort.Slice(vals, func(i, j int) bool {
-		if vals[i].value != vals[j].value {
-			return vals[i].value > vals[j].value
-		}
-		return vals[i].id < vals[j].id
+	slices.SortFunc(vals, func(a, b labeledVal) int {
+		return cmp.Or(cmp.Compare(b.value, a.value), cmp.Compare(a.id, b.id))
 	})
 	if n > 0 && len(vals) > n {
 		vals = vals[:n]

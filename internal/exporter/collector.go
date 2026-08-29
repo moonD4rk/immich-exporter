@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"log/slog"
 	"runtime"
 	"sync/atomic"
 
@@ -195,8 +196,14 @@ func newSnapshot() *snapshot {
 	}
 }
 
+// allDescs is filled by desc() as each descriptor variable is initialized, so
+// Describe can never fall out of sync with the declarations below.
+var allDescs []*prometheus.Desc
+
 func desc(name, help string, labels ...string) *prometheus.Desc {
-	return prometheus.NewDesc(prometheus.BuildFQName(ns, "", name), help, labels, nil)
+	d := prometheus.NewDesc(prometheus.BuildFQName(ns, "", name), help, labels, nil)
+	allDescs = append(allDescs, d)
+	return d
 }
 
 // Metric descriptors. Gauges use plural-noun names (no _total, since the values
@@ -315,25 +322,6 @@ var (
 	dJobQueuePaused = desc("job_queue_paused", "1 if a job queue is paused.", "queue")
 )
 
-var allDescs = []*prometheus.Desc{
-	dExporterUp, dScrapeDuration, dLastSuccess, dScrapeErrors, dExporterBuildInfo, dKeyIsAdmin,
-	dServerUp, dServerInfo, dServerLicensed, dLatestVersion, dUpdateAvailable, dFeature,
-	dConfigTrashDays, dConfigDelDelay, dConfigMinFaces, dInitialized, dOnboarded,
-	dStorageSize, dStorageUsed, dStorageAvail,
-	dAssets, dAssetStorage, dServerUsage, dAssetsByYear, dAssetsByRate,
-	dFavorite, dArchived, dHidden, dLocked, dOffline, dMotion, dNotInAlbum, dEncoded, dTrashed,
-	dCameraMakes, dCameraModels, dLenses, dAssetsByMake, dAssetsByModel, dAssetsByLens,
-	dCities, dStates, dCountries, dGeotagged, dAssetsByCountry, dAssetsByCity,
-	dPeople, dPeopleHidden, dPeopleNamed, dPeopleUnnamed, dPeopleBirthdate, dPersonAssets,
-	dUsers, dUsersByRole, dUserPhotos, dUserVideos, dUserUsage, dUserQuota, dUserUnlim,
-	dAlbums, dAlbumsOwned, dAlbumsSharedSt, dAlbumsNotShared, dAlbumAssets, dAlbumsEmpty,
-	dAlbumsWithLink, dAlbumMax, dAlbumAvg, dTopAlbum,
-	dSharedLinks, dSharedLinksExp, dSharedLinksNever, dSharedLinksPwd, dPartners,
-	dTags, dTagsRoot, dMemories, dDupSets, dDupAssets, dStacks, dStackedAssets,
-	dLibraries, dLibAssets, dAPIKeys, dSessions, dNotifUnread, dNotifByLevel,
-	dJobQueue, dJobQueuePaused,
-}
-
 // collector is a prometheus.Collector that emits the latest snapshot fresh on
 // every scrape via const metrics — no stale-series bookkeeping required.
 type collector struct {
@@ -375,8 +363,15 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	emitJobs(ch, s)
 }
 
+// emit drops (and logs) a sample whose label count does not match its Desc
+// instead of panicking inside the /metrics handler.
 func emit(ch chan<- prometheus.Metric, d *prometheus.Desc, v float64, lv ...string) {
-	ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, lv...)
+	m, err := prometheus.NewConstMetric(d, prometheus.GaugeValue, v, lv...)
+	if err != nil {
+		slog.Error("metric dropped", "desc", d.String(), "labels", lv, "err", err)
+		return
+	}
+	ch <- m
 }
 
 func emitOpt(ch chan<- prometheus.Metric, d *prometheus.Desc, o opt) {
