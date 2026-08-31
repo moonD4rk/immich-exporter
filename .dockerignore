@@ -1,6 +1,6 @@
-.git
-.github
-*.md
-LICENSE
-/immich-exporter
-.env
+# Allowlist: only what the Dockerfile COPYs reaches the build context.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
