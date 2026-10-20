@@ -1,0 +1,30 @@
+# Backends for the dashboard compatibility test (grafana/backends_test.go).
+# Two aliases make the same static exporter output scrape as two instances.
+name: immich-dashboard-check
+
+services:
+  exporter:
+    image: busybox:1.37.0
+    command: ["httpd", "-f", "-p", "8000", "-h", "/www"]
+    volumes:
+      - ../../internal/exporter/testdata/metrics.golden:/www/metrics.txt:ro
+    networks:
+      default:
+        aliases: [exporter-a, exporter-b]
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    volumes:
+      - ./scrape.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["127.0.0.1:19090:9090"]
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    command:
+      - -promscrape.config=/etc/scrape.yml
+      - -promscrape.config.strictParse=false
+      - -search.latencyOffset=0s
+      - -search.disableCache
+    volumes:
+      - ./scrape.yml:/etc/scrape.yml:ro
+    ports: ["127.0.0.1:18428:8428"]

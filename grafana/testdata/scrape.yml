@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 2s
+  scrape_timeout: 2s
+
+scrape_configs:
+  - job_name: immich-exporter
+    metrics_path: /metrics.txt
+    fallback_scrape_protocol: PrometheusText0.0.4
+    static_configs:
+      - targets: [exporter-a:8000, exporter-b:8000]

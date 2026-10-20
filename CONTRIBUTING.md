@@ -37,6 +37,22 @@ go test -race ./...
 - **The Immich client stays read-only** (`GET`, plus `POST /search/statistics` which is a read-only count query). The exporter must never mutate a library.
 - Admin-only or version-dependent endpoints should be collected through the `soft(...)` path in `poll.go` so the exporter degrades gracefully on non-admin keys and older Immich versions.
 
+## Dashboard changes
+
+Prometheus and VictoriaMetrics evaluate some queries differently (VictoriaMetrics matches a label-less `sum(...)` like a scalar and drops `NaN` results, for example), so `grafana/dashboard.json` is checked against both:
+
+- `go test ./grafana`, part of the normal test run, checks that every queried metric is in `internal/exporter/testdata/metrics.golden` and that range windows cover four scrape intervals of [`deploy/prometheus.yml`](deploy/prometheus.yml).
+- The **Dashboard** workflow runs every panel query on Prometheus and VictoriaMetrics instances that scrape the golden metrics, and fails if either backend errors, returns no data, or returns different series. To run it locally:
+
+```sh
+docker compose -f grafana/testdata/compose.yml up -d --wait
+DASHBOARD_PROMETHEUS_URL=http://127.0.0.1:19090 DASHBOARD_VICTORIAMETRICS_URL=http://127.0.0.1:18428 \
+  go test ./grafana -count=1
+docker compose -f grafana/testdata/compose.yml down
+```
+
+A query on a metric the poll mock doesn't produce yet needs it in `internal/exporter/poll_test.go` first, then `UPDATE_GOLDEN=1 go test ./internal/exporter -run TestGoldenMetrics`.
+
 ## Commit messages
 
 Imperative mood, concise subject (≤ 72 chars). Explain the _why_ in the body when it isn't obvious.
