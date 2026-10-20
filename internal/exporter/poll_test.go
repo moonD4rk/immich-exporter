@@ -29,8 +29,6 @@ func searchStatsTotal(m map[string]any) float64 {
 		return 5
 	case m["visibility"] == "hidden":
 		return 1
-	case m["visibility"] == "locked":
-		return 0
 	case m["isOffline"] == true:
 		return 2
 	case m["isMotion"] == true:
@@ -81,7 +79,7 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 		writeJSON(w, map[string]any{"smartSearch": true, "facialRecognition": false})
 	})
 	mux.HandleFunc("GET /server/config", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"trashDays": 30, "userDeleteDelay": 7, "isOnboarded": true})
+		writeJSON(w, map[string]any{"trashDays": 30, "userDeleteDelay": 7, "minFaces": 3, "isInitialized": true, "isOnboarded": true})
 	})
 	mux.HandleFunc("GET /server/storage", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"diskSizeRaw": 1000, "diskUseRaw": 400, "diskAvailableRaw": 600})
@@ -101,12 +99,6 @@ func immichMock(t *testing.T, isAdmin bool) *httptest.Server {
 	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.UnmarshalRead(r.Body, &body)
-		// The PIN-protected locked folder rejects API-key access on real Immich;
-		// this must not abort the other per-state counts.
-		if body["visibility"] == "locked" {
-			http.Error(w, `{"message":"Elevated permission is required"}`, http.StatusUnauthorized)
-			return
-		}
 		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
 	})
 	mux.HandleFunc("GET /assets/statistics", func(w http.ResponseWriter, _ *http.Request) {
@@ -282,11 +274,6 @@ func TestPollAdmin(t *testing.T) {
 	eq("archived", s.assets.archived.v, 5)
 	eq("offline", s.assets.offline.v, 2)
 	eq("trashed", s.assets.trashed.v, 3)
-	// locked visibility 401s (PIN-protected) — it must be skipped without
-	// dropping the states that come after it in the loop.
-	if s.assets.locked.ok {
-		t.Error("assetsLocked should be absent when locked visibility is forbidden")
-	}
 	eq("motion", s.assets.motion.v, 30)
 	eq("notInAlbum", s.assets.notInAlbum.v, 400)
 	eq("encoded", s.assets.encoded.v, 40)
@@ -441,15 +428,15 @@ func TestCollectVersionCheck(t *testing.T) {
 }
 
 // assetStatesSrv serves just the endpoints collectAssetStates needs, optionally
-// 401ing the locked-visibility query like a real PIN-protected folder.
-func assetStatesSrv(t *testing.T, lockedForbidden bool) *httptest.Server {
+// 403ing one visibility filter like a key without the matching permission.
+func assetStatesSrv(t *testing.T, forbiddenVisibility string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /search/statistics", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.UnmarshalRead(r.Body, &body)
-		if lockedForbidden && body["visibility"] == "locked" {
-			http.Error(w, `{"message":"Elevated permission is required"}`, http.StatusUnauthorized)
+		if forbiddenVisibility != "" && body["visibility"] == forbiddenVisibility {
+			http.Error(w, `{"message":"Forbidden"}`, http.StatusForbidden)
 			return
 		}
 		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
@@ -463,33 +450,33 @@ func assetStatesSrv(t *testing.T, lockedForbidden bool) *httptest.Server {
 }
 
 func TestCollectAssetStates(t *testing.T) {
-	t.Run("locked accessible", func(t *testing.T) {
-		p, _ := testPoller(assetStatesSrv(t, false))
+	t.Run("all filters allowed", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, ""))
 		s := newSnapshot()
 		if err := p.collectAssetStates(context.Background(), s); err != nil {
 			t.Fatal(err)
 		}
-		if !s.assets.locked.ok {
-			t.Error("hasLocked should be true when the key can query locked visibility")
+		if !s.assets.archived.ok || s.assets.archived.v != 5 {
+			t.Errorf("archived = %v (present=%v)", s.assets.archived.v, s.assets.archived.ok)
 		}
 		if !s.assets.motion.ok || s.assets.motion.v != 30 {
 			t.Errorf("motion = %v (present=%v)", s.assets.motion.v, s.assets.motion.ok)
 		}
 	})
 
-	t.Run("locked 401 skips only locked", func(t *testing.T) {
-		p, _ := testPoller(assetStatesSrv(t, true))
+	t.Run("forbidden filter skips only its state", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, "archive"))
 		s := newSnapshot()
 		if err := p.collectAssetStates(context.Background(), s); err != nil {
-			t.Fatalf("a 401 on locked must not fail the collector: %v", err)
+			t.Fatalf("a 403 on one filter must not fail the collector: %v", err)
 		}
-		if s.assets.locked.ok {
-			t.Error("hasLocked should be false when locked visibility is forbidden")
+		if s.assets.archived.ok {
+			t.Error("archived should be absent when its filter is forbidden")
 		}
-		// Every state after locked in the loop must still populate.
-		if s.assets.motion.v != 30 || s.assets.notInAlbum.v != 400 || s.assets.encoded.v != 40 || !s.assets.trashed.ok {
-			t.Errorf("states after locked dropped: motion=%v notInAlbum=%v encoded=%v trashed(present)=%v",
-				s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
+		// Every state after archived in the loop must still populate.
+		if s.assets.hidden.v != 1 || s.assets.motion.v != 30 || s.assets.notInAlbum.v != 400 || s.assets.encoded.v != 40 || !s.assets.trashed.ok {
+			t.Errorf("states after archived dropped: hidden=%v motion=%v notInAlbum=%v encoded=%v trashed(present)=%v",
+				s.assets.hidden.v, s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
 		}
 	})
 }

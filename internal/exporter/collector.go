@@ -87,7 +87,7 @@ type assetsSnap struct {
 	serverUsageBytes opt
 	byYear           map[string]float64
 	byRating         map[string]float64 // "1".."5","unrated"
-	favorite, archived, hidden, locked, offline,
+	favorite, archived, hidden, offline,
 	motion, notInAlbum, encoded, trashed opt
 }
 
@@ -244,7 +244,6 @@ var (
 	dFavorite     = desc("assets_favorite", "Number of favourited assets.")
 	dArchived     = desc("assets_archived", "Number of archived assets.")
 	dHidden       = desc("assets_hidden", "Number of hidden assets.")
-	dLocked       = desc("assets_locked", "Number of locked-folder assets.")
 	dOffline      = desc("assets_offline", "Number of offline assets (file missing on disk).")
 	dMotion       = desc("assets_motion", "Number of motion / live-photo assets.")
 	dNotInAlbum   = desc("assets_not_in_album", "Number of assets not assigned to any album.")
@@ -423,7 +422,6 @@ func emitAssets(ch chan<- prometheus.Metric, s *snapshot) {
 	emitOpt(ch, dFavorite, a.favorite)
 	emitOpt(ch, dArchived, a.archived)
 	emitOpt(ch, dHidden, a.hidden)
-	emitOpt(ch, dLocked, a.locked)
 	emitOpt(ch, dOffline, a.offline)
 	emitOpt(ch, dMotion, a.motion)
 	emitOpt(ch, dNotInAlbum, a.notInAlbum)
