@@ -543,7 +543,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_assets_geotagged / clamp_min(sum(immich_assets), 1)",
+          "expr": "sum(immich_assets_geotagged) / clamp_min(sum(immich_assets), 1)",
           "refId": "A",
           "instant": true,
           "range": false
@@ -2116,7 +2116,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_assets_geotagged / clamp_min(sum(immich_assets), 1)",
+          "expr": "sum(immich_assets_geotagged) / clamp_min(sum(immich_assets), 1)",
           "refId": "A",
           "instant": true,
           "range": false
