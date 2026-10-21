@@ -785,6 +785,8 @@ func (p *poller) collectSharedLinks(ctx context.Context, s *snapshot) error {
 	}
 	sl := &s.albums.sharedLinks
 	sl.ok = true
+	// Known types report 0 instead of vanishing, so a library without links totals 0 rather than no data.
+	sl.byType["ALBUM"], sl.byType["INDIVIDUAL"] = 0, 0
 	now := time.Now()
 	for _, l := range links {
 		sl.byType[l.Type]++
