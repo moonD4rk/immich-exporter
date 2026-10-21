@@ -55,6 +55,8 @@ A query on a metric the poll mock doesn't produce yet needs it in `internal/expo
 
 The `datasource` variable's current value stays `${DS_PROMETHEUS}` with text `Prometheus`, so an import uses the datasource picked in its dialog and file provisioning falls back to the one named Prometheus. A dashboard re-exported from Grafana loses this, and `go test ./grafana` catches it.
 
+After a visible dashboard change, refresh the README screenshots with `grafana/demo/screenshots.sh` (needs Docker, Go, jq and ImageMagick). It renders the dashboard over a synthetic library from `internal/exporter/demo_test.go`, so no real data is involved, and `KEEP=1` leaves Grafana running on http://127.0.0.1:13001 to look around. A new metric needs a demo value too, or `TestDemoCoversEveryMetric` fails.
+
 ## Commit messages
 
 Imperative mood, concise subject (≤ 72 chars). Explain the _why_ in the body when it isn't obvious.

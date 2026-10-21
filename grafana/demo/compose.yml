@@ -1,0 +1,27 @@
+# Grafana over the synthetic demo library, for grafana/demo/screenshots.sh.
+name: immich-dashboard-demo
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    command:
+      - -retentionPeriod=1y
+      - -search.latencyOffset=0s
+      - -search.disableCache
+    ports: ["127.0.0.1:18430:8428"]
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_RENDERING_SERVER_URL: http://renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_RENDERING_RENDERER_TOKEN: immich-demo
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+    ports: ["127.0.0.1:13001:3000"]
+
+  renderer:
+    image: grafana/grafana-image-renderer:v5.12.7
+    environment:
+      AUTH_TOKEN: immich-demo
