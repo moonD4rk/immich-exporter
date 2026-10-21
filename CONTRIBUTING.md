@@ -53,6 +53,8 @@ docker compose -f grafana/testdata/compose.yml down
 
 A query on a metric the poll mock doesn't produce yet needs it in `internal/exporter/poll_test.go` first, then `UPDATE_GOLDEN=1 go test ./internal/exporter -run TestGoldenMetrics`.
 
+The `datasource` variable's current value stays `${DS_PROMETHEUS}` with text `Prometheus`, so an import uses the datasource picked in its dialog and file provisioning falls back to the one named Prometheus. A dashboard re-exported from Grafana loses this, and `go test ./grafana` catches it.
+
 ## Commit messages
 
 Imperative mood, concise subject (≤ 72 chars). Explain the _why_ in the body when it isn't obvious.
