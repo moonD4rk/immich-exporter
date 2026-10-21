@@ -205,6 +205,27 @@ func TestWindowProblems(t *testing.T) {
 	}
 }
 
+// An input the dashboard never references still gets a picker on import, and the choice is silently ignored.
+func TestDashboardInputsAreReferenced(t *testing.T) {
+	raw, err := os.ReadFile("dashboard.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Inputs []struct {
+			Name string `json:"name"`
+		} `json:"__inputs"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range d.Inputs {
+		if !strings.Contains(string(raw), "${"+in.Name+"}") {
+			t.Errorf("__inputs %s is never referenced; set the datasource variable's current value to ${%s}", in.Name, in.Name)
+		}
+	}
+}
+
 func TestDashboardUsesOnlyCheckedFeatures(t *testing.T) {
 	d, qs := loadQueries(t)
 	for _, v := range d.Templating.List {

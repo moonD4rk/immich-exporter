@@ -3,6 +3,7 @@ package exporter
 import (
 	"context"
 	"encoding/json/v2"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -479,6 +480,23 @@ func TestCollectAssetStates(t *testing.T) {
 				s.assets.hidden.v, s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
 		}
 	})
+}
+
+func TestCollectSharedLinksNone(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /shared-links", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, []map[string]any{})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p, _ := testPoller(srv)
+	s := newSnapshot()
+	if err := p.collectSharedLinks(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]float64{"ALBUM": 0, "INDIVIDUAL": 0}; !maps.Equal(s.albums.sharedLinks.byType, want) {
+		t.Errorf("byType = %v, want %v", s.albums.sharedLinks.byType, want)
+	}
 }
 
 // A key with library.read but not library.statistics must leave that library's
