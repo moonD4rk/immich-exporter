@@ -4,7 +4,7 @@ name: immich-dashboard-check
 
 services:
   exporter:
-    image: busybox:1.37.0
+    image: busybox:1.38.0
     command: ["httpd", "-f", "-p", "8000", "-h", "/www"]
     volumes:
       - ../../internal/exporter/testdata/metrics.golden:/www/metrics.txt:ro
