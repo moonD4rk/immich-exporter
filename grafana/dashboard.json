@@ -5142,54 +5142,6 @@
       }
     },
     {
-      "id": 98,
-      "type": "stat",
-      "title": "Locked Assets",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "x": 4,
-        "y": 174,
-        "w": 4,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "immich_assets_locked",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "orientation": "auto"
-      }
-    },
-    {
       "id": 99,
       "type": "stat",
       "title": "Stacked Assets",
@@ -5198,7 +5150,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 8,
+        "x": 4,
         "y": 174,
         "w": 4,
         "h": 4
@@ -5246,7 +5198,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 174,
         "w": 4,
         "h": 4
@@ -5294,7 +5246,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 174,
         "w": 4,
         "h": 4
@@ -5342,7 +5294,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 20,
+        "x": 16,
         "y": 174,
         "w": 4,
         "h": 4
@@ -5390,8 +5342,8 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 0,
-        "y": 178,
+        "x": 20,
+        "y": 174,
         "w": 4,
         "h": 4
       },
@@ -5438,9 +5390,9 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 4,
+        "x": 0,
         "y": 178,
-        "w": 4,
+        "w": 8,
         "h": 4
       },
       "fieldConfig": {

@@ -21,3 +21,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: "/grafana/testdata"
+    schedule:
+      interval: weekly

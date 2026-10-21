@@ -1,0 +1,45 @@
+name: Dashboard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - grafana/**
+      - internal/exporter/testdata/metrics.golden
+      - .github/workflows/dashboard.yml
+  pull_request:
+    paths:
+      - grafana/**
+      - internal/exporter/testdata/metrics.golden
+      - .github/workflows/dashboard.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backends:
+    name: prometheus-vs-victoriametrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COMPOSE_FILE: grafana/testdata/compose.yml
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: start backends
+        run: docker compose up -d --wait
+      - name: compare dashboard queries
+        env:
+          DASHBOARD_PROMETHEUS_URL: http://127.0.0.1:19090
+          DASHBOARD_VICTORIAMETRICS_URL: http://127.0.0.1:18428
+        run: go test ./grafana -count=1 -v
+      - name: backend logs
+        if: failure()
+        run: docker compose logs

@@ -34,7 +34,6 @@ func fullSnapshot() *snapshot {
 	s.assets.favorite = set(12)
 	s.assets.archived = set(5)
 	s.assets.hidden = set(1)
-	s.assets.locked = set(0)
 	s.assets.offline = set(2)
 	s.assets.motion = set(30)
 	s.assets.notInAlbum = set(400)

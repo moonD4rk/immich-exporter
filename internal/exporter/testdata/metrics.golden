@@ -108,6 +108,9 @@ immich_camera_makes 2
 # HELP immich_camera_models Number of distinct camera models in the library.
 # TYPE immich_camera_models gauge
 immich_camera_models 2
+# HELP immich_config_min_faces Minimum faces threshold for facial-recognition clustering.
+# TYPE immich_config_min_faces gauge
+immich_config_min_faces 3
 # HELP immich_config_trash_days Days assets stay in trash before automatic deletion.
 # TYPE immich_config_trash_days gauge
 immich_config_trash_days 30
@@ -215,6 +218,9 @@ immich_server_feature{feature="smart_search"} 1
 # HELP immich_server_info Immich server version and dependency metadata (value is always 1).
 # TYPE immich_server_info gauge
 immich_server_info{build="",exiftool="",ffmpeg="6.0",imagemagick="",libvips="",nodejs="",source_commit="",source_ref="",version="v1.120.0"} 1
+# HELP immich_server_initialized 1 if the server has completed first-run initialization.
+# TYPE immich_server_initialized gauge
+immich_server_initialized 1
 # HELP immich_server_latest_version_info Latest Immich release available upstream (value is always 1).
 # TYPE immich_server_latest_version_info gauge
 immich_server_latest_version_info{release_version="v1.121.0"} 1

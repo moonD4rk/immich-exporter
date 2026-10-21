@@ -356,14 +356,12 @@ func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
 		{&a.favorite, map[string]any{"isFavorite": true}},
 		{&a.archived, map[string]any{"visibility": "archive"}},
 		{&a.hidden, map[string]any{"visibility": "hidden"}},
-		{&a.locked, map[string]any{"visibility": "locked"}},
 		{&a.offline, map[string]any{"isOffline": true}},
 		{&a.motion, map[string]any{"isMotion": true}},
 		{&a.notInAlbum, map[string]any{"isNotInAlbum": true}},
 		{&a.encoded, map[string]any{"isEncoded": true}},
 	}
-	// visibility=locked 401s under API-key auth (PIN-protected folder); skip
-	// filters the server rejects so one denial can't drop the other states.
+	// A filter the API key may not query must not drop the other states.
 	for _, c := range checks {
 		n, err := p.c.StatTotal(ctx, c.filter)
 		if err != nil {

@@ -12,7 +12,7 @@ It is **complementary to Immich's built-in OpenTelemetry**: Immich's own telemet
 - **Two-tier polling** with bounded-concurrency fan-out. An atomic snapshot is emitted fresh on every scrape, so vanished label combinations never linger as stale series.
 - **Admin auto-detection** — full coverage with an admin key, graceful degradation with a non-admin one.
 - **Single ~13 MB static binary**, distroless `nonroot` image; exports its own `go_*` / `process_*` runtime metrics too.
-- **Batteries included** — Grafana dashboard (~100 panels), Docker Compose stack, and Kubernetes manifests.
+- **Batteries included** — Grafana dashboard (~100 panels, CI-checked on both Prometheus and VictoriaMetrics), Docker Compose stack, and Kubernetes manifests.
 
 ## Quick start
 
