@@ -66,11 +66,26 @@
     }
   ],
   "title": "Immich Library",
+  "description": "Immich library content from immich-exporter (https://github.com/moond4rk/immich-exporter): assets, cameras and EXIF, geography, people, storage, albums and sharing, jobs and server health.",
   "uid": "immich-library",
   "tags": [
     "immich",
     "photos",
     "library"
+  ],
+  "links": [
+    {
+      "title": "immich-exporter",
+      "type": "link",
+      "url": "https://github.com/moond4rk/immich-exporter",
+      "tooltip": "Exporter setup, metrics reference and issues",
+      "icon": "external link",
+      "targetBlank": true,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": false,
+      "tags": []
+    }
   ],
   "schemaVersion": 41,
   "version": 1,
