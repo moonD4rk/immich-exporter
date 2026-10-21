@@ -998,7 +998,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_people",
+          "expr": "sum(immich_people)",
           "refId": "B",
           "legendFormat": "People"
         },
@@ -1056,7 +1056,9 @@
           },
           "expr": "immich_assets_favorite",
           "refId": "A",
-          "legendFormat": "favorite"
+          "legendFormat": "favorite",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1065,7 +1067,9 @@
           },
           "expr": "immich_assets_archived",
           "refId": "B",
-          "legendFormat": "archived"
+          "legendFormat": "archived",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1074,7 +1078,9 @@
           },
           "expr": "immich_assets_trashed",
           "refId": "C",
-          "legendFormat": "trashed"
+          "legendFormat": "trashed",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1083,7 +1089,9 @@
           },
           "expr": "immich_assets_offline",
           "refId": "D",
-          "legendFormat": "offline"
+          "legendFormat": "offline",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1092,7 +1100,9 @@
           },
           "expr": "immich_assets_motion",
           "refId": "E",
-          "legendFormat": "motion"
+          "legendFormat": "motion",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1101,7 +1111,9 @@
           },
           "expr": "immich_assets_not_in_album",
           "refId": "F",
-          "legendFormat": "not in album"
+          "legendFormat": "not in album",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -1110,7 +1122,9 @@
           },
           "expr": "immich_assets_encoded",
           "refId": "G",
-          "legendFormat": "encoded"
+          "legendFormat": "encoded",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -1211,7 +1225,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_server_usage_bytes",
+          "expr": "sum(immich_server_usage_bytes)",
           "refId": "A",
           "legendFormat": "Library"
         },
@@ -1220,7 +1234,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_storage_used_bytes",
+          "expr": "sum(immich_storage_used_bytes)",
           "refId": "B",
           "legendFormat": "Disk used"
         }
@@ -2556,7 +2570,9 @@
           },
           "expr": "immich_people_named",
           "refId": "A",
-          "legendFormat": "named"
+          "legendFormat": "named",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -2565,7 +2581,9 @@
           },
           "expr": "immich_people_unnamed",
           "refId": "B",
-          "legendFormat": "unnamed"
+          "legendFormat": "unnamed",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -3086,7 +3104,9 @@
           },
           "expr": "immich_shared_links_never_expire",
           "refId": "A",
-          "legendFormat": "never expire"
+          "legendFormat": "never expire",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -3095,7 +3115,9 @@
           },
           "expr": "immich_shared_links_expired",
           "refId": "B",
-          "legendFormat": "expired"
+          "legendFormat": "expired",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
@@ -3104,7 +3126,9 @@
           },
           "expr": "immich_shared_links_password_protected",
           "refId": "C",
-          "legendFormat": "password protected"
+          "legendFormat": "password protected",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -4610,7 +4634,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "immich_job_queue{queue=\"smartSearch\"}",
+          "expr": "sum by (state) (immich_job_queue{queue=\"smartSearch\"})",
           "refId": "A",
           "legendFormat": "{{state}}"
         }
@@ -4721,7 +4745,9 @@
           },
           "expr": "rate(immich_exporter_scrape_errors_total[5m]) * 60",
           "refId": "A",
-          "legendFormat": "errors/min"
+          "legendFormat": "errors/min",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
