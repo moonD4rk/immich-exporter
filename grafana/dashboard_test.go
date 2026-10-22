@@ -1,10 +1,13 @@
 package grafana
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,15 +16,26 @@ import (
 	"github.com/prometheus/common/model"
 )
 
+// defaultScrapeInterval is Grafana's default datasource scrape interval, the floor of $__interval.
+const defaultScrapeInterval = 15 * time.Second
+
+// builtinVars substitutes Grafana's built-in variables at a 5m range for a panel whose $__interval resolves to
+// interval. $__rate_interval is Grafana's max($__interval + scrape interval, 4 * scrape interval).
+func builtinVars(interval time.Duration) *strings.Replacer {
+	rate := model.Duration(max(interval+defaultScrapeInterval, 4*defaultScrapeInterval)).String()
+	step, ms := model.Duration(interval).String(), strconv.FormatInt(interval.Milliseconds(), 10)
+	return strings.NewReplacer(
+		"${__rate_interval}", rate, "$__rate_interval", rate,
+		"${__interval_ms}", ms, "$__interval_ms", ms,
+		"${__interval}", step, "$__interval", step,
+		"${__range_ms}", "300000", "$__range_ms", "300000",
+		"${__range_s}", "300", "$__range_s", "300",
+		"${__range}", "5m", "$__range", "5m",
+	)
+}
+
 // Grafana's values for its built-in variables at default datasource settings (15s scrape interval, 5m range).
-var grafanaVars = strings.NewReplacer(
-	"${__rate_interval}", "1m", "$__rate_interval", "1m",
-	"${__interval_ms}", "15000", "$__interval_ms", "15000",
-	"${__interval}", "15s", "$__interval", "15s",
-	"${__range_ms}", "300000", "$__range_ms", "300000",
-	"${__range_s}", "300", "$__range_s", "300",
-	"${__range}", "5m", "$__range", "5m",
-)
+var grafanaVars = builtinVars(defaultScrapeInterval)
 
 var (
 	quotedString = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
@@ -46,6 +60,7 @@ type dashboardTarget struct {
 type dashboardPanel struct {
 	ID         int               `json:"id"`
 	Title      string            `json:"title"`
+	Interval   string            `json:"interval"`
 	Datasource *datasourceRef    `json:"datasource"`
 	Targets    []dashboardTarget `json:"targets"`
 	Panels     []dashboardPanel  `json:"panels"`
@@ -65,6 +80,8 @@ type query struct {
 	name         string
 	datasource   string
 	expr         string
+	template     string        // expr before substitution
+	minInterval  time.Duration // the panel's minimum interval, which raises $__interval
 	legendFormat string
 	format       string
 	rangeQuery   bool
@@ -93,6 +110,14 @@ func loadQueries(t *testing.T) (*dashboard, []query) {
 	walk = func(panels []dashboardPanel) {
 		for i := range panels {
 			p := &panels[i]
+			var minInterval model.Duration
+			if p.Interval != "" {
+				d, err := model.ParseDuration(p.Interval)
+				if err != nil {
+					t.Fatalf("%d %s: interval: %v", p.ID, p.Title, err)
+				}
+				minInterval = d
+			}
 			for j := range p.Targets {
 				tg := &p.Targets[j]
 				ds := p.Datasource
@@ -102,6 +127,8 @@ func loadQueries(t *testing.T) (*dashboard, []query) {
 				q := query{
 					name:         fmt.Sprintf("%d %s %s", p.ID, p.Title, tg.RefID),
 					expr:         grafanaVars.Replace(tg.Expr),
+					template:     tg.Expr,
+					minInterval:  time.Duration(minInterval),
 					legendFormat: tg.LegendFormat,
 					format:       tg.Format,
 					rangeQuery:   tg.Range || !tg.Instant,
@@ -180,7 +207,8 @@ func TestDashboardRangeWindowsCoverScrapeInterval(t *testing.T) {
 	// Four intervals, like Grafana's $__rate_interval, so one missed scrape still leaves two samples.
 	minWindow := 4 * time.Duration(cfg.Global.ScrapeInterval)
 	for i := range qs {
-		for _, p := range windowProblems(qs[i].expr, minWindow) {
+		expr := builtinVars(max(defaultScrapeInterval, qs[i].minInterval)).Replace(qs[i].template)
+		for _, p := range windowProblems(expr, minWindow) {
 			t.Errorf("%s: %s (4x the documented %s scrape interval)", qs[i].name, p, cfg.Global.ScrapeInterval)
 		}
 	}
@@ -240,5 +268,45 @@ func TestDashboardUsesOnlyCheckedFeatures(t *testing.T) {
 		if strings.TrimSpace(qs[i].expr) == "" {
 			t.Errorf("%s: empty query", qs[i].name)
 		}
+	}
+}
+
+// immichQueues are the queues Immich reports: QueueName in server/src/enum.ts of immich-app/immich.
+var immichQueues = []string{
+	"thumbnailGeneration", "metadataExtraction", "videoConversion", "faceDetection", "facialRecognition",
+	"smartSearch", "duplicateDetection", "backgroundTask", "storageTemplateMigration", "migration", "search",
+	"sidecar", "library", "notifications", "backupDatabase", "ocr", "workflow", "integrityCheck", "editor",
+}
+
+// A pipeline box finds its queue and the boxes it feeds by name, so a typo shows a dash or drops a link silently.
+func TestPipelineStages(t *testing.T) {
+	boxes := map[string]bool{}
+	for _, s := range pipelineStages {
+		boxes[s.name] = true
+	}
+	for _, s := range pipelineStages {
+		if s.field != "uploads" && !slices.Contains(immichQueues, s.field) {
+			t.Errorf("pipeline box %q shows queue %q, which Immich doesn't report", s.name, s.field)
+		}
+		for _, next := range s.feeds {
+			if !boxes[next] {
+				t.Errorf("pipeline box %q feeds %q, which has no box", s.name, next)
+			}
+		}
+	}
+}
+
+// dashboard.json is generated from dashboard.go, so a hand edit would be lost on the next go generate.
+func TestDashboardIsGenerated(t *testing.T) {
+	want, err := JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("dashboard.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Error("dashboard.json differs from dashboard.go: edit dashboard.go, then run go generate ./grafana")
 	}
 }

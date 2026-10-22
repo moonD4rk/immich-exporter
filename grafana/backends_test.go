@@ -51,7 +51,8 @@ func liveBackends(t *testing.T) []backend {
 	deadline := time.Now().Add(2 * time.Minute)
 	for _, b := range bs {
 		for {
-			got, err := b.instant(t.Context(), `count_over_time(up{job="immich-exporter"}[1m]) >= 5`, time.Now())
+			// Twelve 2s scrapes hold history beyond offset $__interval (15s).
+			got, err := b.instant(t.Context(), `count_over_time(up{job="immich-exporter"}[1m]) >= 12`, time.Now())
 			if err == nil && len(got) == exporterInstances {
 				break
 			}
