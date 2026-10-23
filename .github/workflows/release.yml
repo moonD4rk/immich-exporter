@@ -53,6 +53,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # keyless cosign signing
     steps:
       - uses: actions/checkout@v7
         with:
@@ -68,11 +69,13 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # A pre-release gets only its own tag; semver patterns skip it already, latest must too.
           tags: |
             type=semver,pattern={{version}},value=${{ inputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v7
+            type=raw,value=latest,enable=${{ !contains(inputs.version, '-') }}
+      - id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -81,5 +84,16 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          images=()
+          for tag in ${TAGS}; do images+=("${tag}@${DIGEST}"); done
+          cosign sign --yes "${images[@]}"
