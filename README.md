@@ -12,7 +12,7 @@ It is **complementary to Immich's built-in OpenTelemetry**: Immich's own telemet
 </picture>
 
 <details>
-<summary>More of the dashboard: places, cameras, people, albums, users, jobs and server</summary>
+<summary>More of the dashboard: places, cameras, people, albums, users, jobs, server, file sizes and metadata</summary>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/dashboard-geography-light.webp">
@@ -47,6 +47,11 @@ It is **complementary to Immich's built-in OpenTelemetry**: Immich's own telemet
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/dashboard-server-light.webp">
   <img alt="Server & exporter" src="docs/images/dashboard-server.webp">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/dashboard-more-light.webp">
+  <img alt="More" src="docs/images/dashboard-more.webp">
 </picture>
 
 </details>
