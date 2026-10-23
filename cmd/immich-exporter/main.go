@@ -26,6 +26,9 @@ import (
 	"syscall"
 	"time"
 
+	// Immich stamps backup file names in its own time zone, which the host may have no zoneinfo for.
+	_ "time/tzdata"
+
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -49,6 +52,7 @@ type appFlags struct {
 	telemetryPath     *string
 	baseURL           *string
 	host, port        *string
+	tokenFile         *string
 	interval          *time.Duration
 	breakdownInterval *time.Duration
 	requestTimeout    *time.Duration
@@ -58,6 +62,7 @@ type appFlags struct {
 	topN              *int
 	fanoutLimit       *int
 	fanoutConcurrency *int
+	cityLimit         *int
 }
 
 func main() {
@@ -81,7 +86,11 @@ func main() {
 	logger := promslog.New(promslogConfig)
 	slog.SetDefault(logger)
 
-	token, err := resolveToken(&cfg.Immich)
+	if err := validate(flags); err != nil {
+		logger.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+	token, err := resolveToken(*flags.tokenFile, cfg.Immich.Token)
 	if err != nil {
 		logger.Error("API token", "err", err)
 		os.Exit(1)
@@ -96,7 +105,7 @@ func main() {
 		*flags.fanoutConcurrency = 1
 	}
 
-	c := immich.New(base, token, &http.Client{Timeout: *flags.requestTimeout})
+	c := immich.New(base, token, "immich-exporter/"+version, &http.Client{Timeout: *flags.requestTimeout})
 	exp := exporter.New(c, version, exporterConfig(flags))
 
 	reg := prometheus.NewRegistry()
@@ -138,6 +147,7 @@ func registerFlags(app *kingpin.Application, cfg *config.Config) *appFlags {
 		baseURL:           app.Flag("immich.base-url", "Full Immich API base URL incl. /api (overrides host/port).").Default(cfg.Immich.BaseURL).Envar("IMMICH_BASE_URL").String(),
 		host:              app.Flag("immich.host", "Immich server host.").Default(cfg.Immich.Host).Envar("IMMICH_HOST").String(),
 		port:              app.Flag("immich.port", "Immich server port.").Default(cfg.Immich.Port).Envar("IMMICH_PORT").String(),
+		tokenFile:         app.Flag("immich.token-file", "File holding the API token, e.g. a mounted secret.").Default(cfg.Immich.TokenFile).Envar("IMMICH_API_TOKEN_FILE").String(),
 		interval:          app.Flag("scrape-interval", "Cheap-metric poll interval.").Default(durDefault("SCRAPE_INTERVAL_SECONDS", cfg.Scrape.Interval)).Envar("SCRAPE_INTERVAL").Duration(),
 		breakdownInterval: app.Flag("breakdown-interval", "Expensive fan-out refresh interval.").Default(durDefault("BREAKDOWN_INTERVAL_SECONDS", cfg.Scrape.BreakdownInterval)).Envar("BREAKDOWN_INTERVAL").Duration(),
 		requestTimeout:    app.Flag("request-timeout", "Per-request HTTP timeout.").Default(durDefault("REQUEST_TIMEOUT_SECONDS", cfg.Scrape.RequestTimeout)).Envar("REQUEST_TIMEOUT").Duration(),
@@ -149,7 +159,25 @@ func registerFlags(app *kingpin.Application, cfg *config.Config) *appFlags {
 		topN:              app.Flag("topn", "Series cap for model/lens/person/album breakdowns.").Default(strconv.Itoa(cfg.Limits.TopN)).Envar("TOPN").Int(),
 		fanoutLimit:       app.Flag("fanout.limit", "Skip a breakdown with more distinct values than this.").Default(strconv.Itoa(cfg.Limits.FanoutLimit)).Envar("FANOUT_LIMIT").Int(),
 		fanoutConcurrency: app.Flag("fanout.concurrency", "Concurrent fan-out requests.").Default(strconv.Itoa(cfg.Limits.FanoutConcurrency)).Envar("FANOUT_CONCURRENCY").Int(),
+		cityLimit:         app.Flag("geo.city-limit", "Cities kept in immich_assets_by_city; the rest sum into \"other\" (0 keeps all).").Default(strconv.Itoa(cfg.Limits.CityLimit)).Envar("GEO_CITY_LIMIT").Int(),
 	}
+}
+
+// minInterval keeps a mistyped interval from turning the poller into a tight loop against Immich.
+const minInterval = 10 * time.Second
+
+func validate(f *appFlags) error {
+	switch {
+	case *f.interval < minInterval:
+		return fmt.Errorf("--scrape-interval %s is below the %s minimum", *f.interval, minInterval)
+	case *f.breakdownInterval < minInterval:
+		return fmt.Errorf("--breakdown-interval %s is below the %s minimum", *f.breakdownInterval, minInterval)
+	case *f.requestTimeout <= 0:
+		return fmt.Errorf("--request-timeout %s must be positive", *f.requestTimeout)
+	case *f.topN < 0, *f.fanoutLimit < 0, *f.cityLimit < 0:
+		return errors.New("--topn, --fanout.limit and --geo.city-limit must not be negative")
+	}
+	return nil
 }
 
 func exporterConfig(f *appFlags) exporter.Config {
@@ -164,6 +192,7 @@ func exporterConfig(f *appFlags) exporter.Config {
 		TopN:              *f.topN,
 		FanoutLimit:       *f.fanoutLimit,
 		FanoutConcurrency: *f.fanoutConcurrency,
+		CityLimit:         *f.cityLimit,
 	}
 }
 
@@ -205,23 +234,27 @@ func configFilePath() string {
 	return os.Getenv("IMMICH_CONFIG_FILE")
 }
 
-// resolveToken reads the API token with precedence env > token_file > inline
+// resolveToken reads the API token with precedence IMMICH_API_TOKEN > token
+// file (--immich.token-file, IMMICH_API_TOKEN_FILE or YAML token_file) > inline
 // YAML token.
-func resolveToken(im *config.Immich) (string, error) {
+func resolveToken(tokenFile, inline string) (string, error) {
 	if v := os.Getenv("IMMICH_API_TOKEN"); v != "" {
 		return v, nil
 	}
-	if im.TokenFile != "" {
-		b, err := os.ReadFile(im.TokenFile)
+	if tokenFile != "" {
+		b, err := os.ReadFile(tokenFile) //nolint:gosec // the path is operator-supplied configuration.
 		if err != nil {
-			return "", fmt.Errorf("read token_file: %w", err)
+			return "", fmt.Errorf("read token file: %w", err)
 		}
-		return strings.TrimSpace(string(b)), nil
+		if token := strings.TrimSpace(string(b)); token != "" {
+			return token, nil
+		}
+		return "", fmt.Errorf("token file %s is empty", tokenFile)
 	}
-	if im.Token != "" {
-		return im.Token, nil
+	if inline != "" {
+		return inline, nil
 	}
-	return "", errors.New("no API token: set IMMICH_API_TOKEN, immich.token_file, or immich.token")
+	return "", errors.New("no API token: set IMMICH_API_TOKEN, IMMICH_API_TOKEN_FILE, immich.token_file, or immich.token")
 }
 
 // durDefault seeds a duration flag's default from the legacy *_SECONDS env var

@@ -63,8 +63,8 @@ limits:
 	if !c.Collect.Camera || !c.Collect.Geo || !c.Collect.Ratings {
 		t.Error("camera/geo/ratings should keep default true")
 	}
-	if c.Limits.FanoutLimit != 200 || c.Limits.FanoutConcurrency != 8 {
-		t.Errorf("fanout defaults lost: %+v", c.Limits)
+	if c.Limits.FanoutLimit != 200 || c.Limits.FanoutConcurrency != 8 || c.Limits.CityLimit != 200 {
+		t.Errorf("limit defaults lost: %+v", c.Limits)
 	}
 }
 

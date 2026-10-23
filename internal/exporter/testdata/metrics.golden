@@ -59,6 +59,15 @@ immich_assets_by_city{city="unknown",country="unknown",lat="",lon=""} 1
 immich_assets_by_country{country="China",lat="31.2",lon="121.3"} 2
 immich_assets_by_country{country="Japan",lat="35.7",lon="139.7"} 1
 immich_assets_by_country{country="unknown",lat="",lon=""} 1
+# HELP immich_assets_by_file_size Visible assets (timeline and archive) by original file size (Immich 3.2+).
+# TYPE immich_assets_by_file_size gauge
+immich_assets_by_file_size{size="0-1MiB"} 100
+immich_assets_by_file_size{size="1-5MiB"} 600
+immich_assets_by_file_size{size="100MiB-1GiB"} 40
+immich_assets_by_file_size{size="1GiB+"} 4
+immich_assets_by_file_size{size="20-100MiB"} 50
+immich_assets_by_file_size{size="5-20MiB"} 250
+immich_assets_by_file_size{size="unknown"} 6
 # HELP immich_assets_by_lens Assets per lens model.
 # TYPE immich_assets_by_lens gauge
 immich_assets_by_lens{lens="24mm"} 100
@@ -83,9 +92,12 @@ immich_assets_favorite 12
 # HELP immich_assets_geotagged Number of geotagged assets (from /map/markers).
 # TYPE immich_assets_geotagged gauge
 immich_assets_geotagged 4
-# HELP immich_assets_hidden Number of hidden assets.
+# HELP immich_assets_hidden Number of hidden assets, including the video halves of live photos.
 # TYPE immich_assets_hidden gauge
 immich_assets_hidden 1
+# HELP immich_assets_locked Assets in users' PIN-locked folders, summed over every user (admin).
+# TYPE immich_assets_locked gauge
+immich_assets_locked 3
 # HELP immich_assets_motion Number of motion / live-photo assets.
 # TYPE immich_assets_motion gauge
 immich_assets_motion 30
@@ -102,6 +114,12 @@ immich_assets_storage_bytes{type="VIDEO"} 3000
 # HELP immich_assets_trashed Number of trashed assets.
 # TYPE immich_assets_trashed gauge
 immich_assets_trashed 3
+# HELP immich_assets_with_camera Visible assets (timeline and archive) whose EXIF names a camera make (Immich 3.2+).
+# TYPE immich_assets_with_camera gauge
+immich_assets_with_camera 900
+# HELP immich_assets_with_people Visible assets (timeline and archive) showing at least one recognized person (Immich 3.2+).
+# TYPE immich_assets_with_people gauge
+immich_assets_with_people 600
 # HELP immich_camera_makes Number of distinct camera makes in the library.
 # TYPE immich_camera_makes gauge
 immich_camera_makes 2
@@ -117,6 +135,18 @@ immich_config_trash_days 30
 # HELP immich_config_user_delete_delay_days Grace period before a deleted user is purged, in days.
 # TYPE immich_config_user_delete_delay_days gauge
 immich_config_user_delete_delay_days 7
+# HELP immich_database_backup_last_size_bytes Size of the newest database backup, in bytes.
+# TYPE immich_database_backup_last_size_bytes gauge
+immich_database_backup_last_size_bytes 1000
+# HELP immich_database_backup_last_timestamp_seconds Unix time of the newest database backup, read from its file name.
+# TYPE immich_database_backup_last_timestamp_seconds gauge
+immich_database_backup_last_timestamp_seconds 1.7926056e+09
+# HELP immich_database_backups Database backups in Immich's backups folder.
+# TYPE immich_database_backups gauge
+immich_database_backups 3
+# HELP immich_database_backups_size_bytes Total size of the database backups in Immich's backups folder.
+# TYPE immich_database_backups_size_bytes gauge
+immich_database_backups_size_bytes 1950
 # HELP immich_duplicate_assets Number of assets involved in duplicate sets.
 # TYPE immich_duplicate_assets gauge
 immich_duplicate_assets 2
@@ -126,6 +156,82 @@ immich_duplicate_sets 1
 # HELP immich_exporter_build_info Exporter build metadata (value is always 1).
 # TYPE immich_exporter_build_info gauge
 immich_exporter_build_info{goversion="go-golden",version="golden"} 1
+# HELP immich_exporter_collector_duration_seconds Duration of the collector's latest run, in seconds.
+# TYPE immich_exporter_collector_duration_seconds gauge
+immich_exporter_collector_duration_seconds{collector="admin/users"} 0.01
+immich_exporter_collector_duration_seconds{collector="albums"} 0.01
+immich_exporter_collector_duration_seconds{collector="albums/statistics"} 0.01
+immich_exporter_collector_duration_seconds{collector="api-keys"} 0.01
+immich_exporter_collector_duration_seconds{collector="assets"} 0.01
+immich_exporter_collector_duration_seconds{collector="assets/locked"} 0.01
+immich_exporter_collector_duration_seconds{collector="assets/metadata"} 0.01
+immich_exporter_collector_duration_seconds{collector="assets/rating"} 0.01
+immich_exporter_collector_duration_seconds{collector="assets/state"} 0.01
+immich_exporter_collector_duration_seconds{collector="cameras"} 0.01
+immich_exporter_collector_duration_seconds{collector="database-backups"} 0.01
+immich_exporter_collector_duration_seconds{collector="duplicates"} 0.01
+immich_exporter_collector_duration_seconds{collector="geo"} 0.01
+immich_exporter_collector_duration_seconds{collector="integrity"} 0.01
+immich_exporter_collector_duration_seconds{collector="jobs"} 0.01
+immich_exporter_collector_duration_seconds{collector="libraries"} 0.01
+immich_exporter_collector_duration_seconds{collector="maintenance"} 0.01
+immich_exporter_collector_duration_seconds{collector="memories"} 0.01
+immich_exporter_collector_duration_seconds{collector="notifications"} 0.01
+immich_exporter_collector_duration_seconds{collector="partners"} 0.01
+immich_exporter_collector_duration_seconds{collector="people"} 0.01
+immich_exporter_collector_duration_seconds{collector="people/statistics"} 0.01
+immich_exporter_collector_duration_seconds{collector="plugins"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/about"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/config"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/features"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/storage"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/version-check"} 0.01
+immich_exporter_collector_duration_seconds{collector="server/version-history"} 0.01
+immich_exporter_collector_duration_seconds{collector="sessions"} 0.01
+immich_exporter_collector_duration_seconds{collector="shared-links"} 0.01
+immich_exporter_collector_duration_seconds{collector="stacks"} 0.01
+immich_exporter_collector_duration_seconds{collector="tags"} 0.01
+immich_exporter_collector_duration_seconds{collector="timeline/buckets"} 0.01
+immich_exporter_collector_duration_seconds{collector="users/me"} 0.01
+immich_exporter_collector_duration_seconds{collector="workflows"} 0.01
+# HELP immich_exporter_collector_success 1 if the collector's latest run got its data; 0 if it failed, including when the API key may not use it or the server lacks it.
+# TYPE immich_exporter_collector_success gauge
+immich_exporter_collector_success{collector="admin/users"} 1
+immich_exporter_collector_success{collector="albums"} 1
+immich_exporter_collector_success{collector="albums/statistics"} 1
+immich_exporter_collector_success{collector="api-keys"} 1
+immich_exporter_collector_success{collector="assets"} 1
+immich_exporter_collector_success{collector="assets/locked"} 1
+immich_exporter_collector_success{collector="assets/metadata"} 1
+immich_exporter_collector_success{collector="assets/rating"} 1
+immich_exporter_collector_success{collector="assets/state"} 1
+immich_exporter_collector_success{collector="cameras"} 1
+immich_exporter_collector_success{collector="database-backups"} 1
+immich_exporter_collector_success{collector="duplicates"} 1
+immich_exporter_collector_success{collector="geo"} 1
+immich_exporter_collector_success{collector="integrity"} 1
+immich_exporter_collector_success{collector="jobs"} 1
+immich_exporter_collector_success{collector="libraries"} 1
+immich_exporter_collector_success{collector="maintenance"} 1
+immich_exporter_collector_success{collector="memories"} 1
+immich_exporter_collector_success{collector="notifications"} 1
+immich_exporter_collector_success{collector="partners"} 1
+immich_exporter_collector_success{collector="people"} 1
+immich_exporter_collector_success{collector="people/statistics"} 1
+immich_exporter_collector_success{collector="plugins"} 1
+immich_exporter_collector_success{collector="server/about"} 1
+immich_exporter_collector_success{collector="server/config"} 1
+immich_exporter_collector_success{collector="server/features"} 1
+immich_exporter_collector_success{collector="server/storage"} 1
+immich_exporter_collector_success{collector="server/version-check"} 1
+immich_exporter_collector_success{collector="server/version-history"} 1
+immich_exporter_collector_success{collector="sessions"} 1
+immich_exporter_collector_success{collector="shared-links"} 1
+immich_exporter_collector_success{collector="stacks"} 1
+immich_exporter_collector_success{collector="tags"} 1
+immich_exporter_collector_success{collector="timeline/buckets"} 1
+immich_exporter_collector_success{collector="users/me"} 1
+immich_exporter_collector_success{collector="workflows"} 1
 # HELP immich_exporter_last_scrape_duration_seconds Duration of the last Immich poll, in seconds.
 # TYPE immich_exporter_last_scrape_duration_seconds gauge
 immich_exporter_last_scrape_duration_seconds 0.42
@@ -138,6 +244,11 @@ immich_exporter_scrape_errors_total 0
 # HELP immich_exporter_up 1 if the last Immich poll fully succeeded.
 # TYPE immich_exporter_up gauge
 immich_exporter_up 1
+# HELP immich_integrity_issues Files flagged by Immich's latest integrity checks, by report type.
+# TYPE immich_integrity_issues gauge
+immich_integrity_issues{type="checksum_mismatch"} 0
+immich_integrity_issues{type="missing_file"} 2
+immich_integrity_issues{type="untracked_file"} 5
 # HELP immich_job_queue Jobs in each queue by state.
 # TYPE immich_job_queue gauge
 immich_job_queue{queue="smartSearch",state="active"} 1
@@ -168,6 +279,9 @@ immich_libraries 1
 # HELP immich_library_assets Assets per external library.
 # TYPE immich_library_assets gauge
 immich_library_assets{library="External",library_id="l1"} 5000
+# HELP immich_library_usage_bytes Storage used per external library, in bytes.
+# TYPE immich_library_usage_bytes gauge
+immich_library_usage_bytes{library="External",library_id="l1"} 1000
 # HELP immich_memories Number of memories.
 # TYPE immich_memories gauge
 immich_memories 7
@@ -211,31 +325,43 @@ immich_places_countries 2
 # HELP immich_places_states Number of distinct states/provinces with assets.
 # TYPE immich_places_states gauge
 immich_places_states 2
+# HELP immich_plugins Installed plugins (Immich 3+).
+# TYPE immich_plugins gauge
+immich_plugins 1
 # HELP immich_server_feature Immich server feature flags (1 enabled, 0 disabled).
 # TYPE immich_server_feature gauge
 immich_server_feature{feature="facial_recognition"} 0
 immich_server_feature{feature="smart_search"} 1
 # HELP immich_server_info Immich server version and dependency metadata (value is always 1).
 # TYPE immich_server_info gauge
-immich_server_info{build="",exiftool="",ffmpeg="6.0",imagemagick="",libvips="",nodejs="",source_commit="",source_ref="",version="v1.120.0"} 1
+immich_server_info{build="",exiftool="",ffmpeg="6.0",imagemagick="",libvips="",nodejs="",source_commit="",source_ref="",version="v3.3.4"} 1
 # HELP immich_server_initialized 1 if the server has completed first-run initialization.
 # TYPE immich_server_initialized gauge
 immich_server_initialized 1
-# HELP immich_server_latest_version_info Latest Immich release available upstream (value is always 1).
+# HELP immich_server_latest_version_info Latest Immich release available upstream (value is always 1). Absent while Immich's version check is stale.
 # TYPE immich_server_latest_version_info gauge
-immich_server_latest_version_info{release_version="v1.121.0"} 1
+immich_server_latest_version_info{release_version="v3.3.5"} 1
 # HELP immich_server_licensed 1 if the Immich server has an active license.
 # TYPE immich_server_licensed gauge
 immich_server_licensed 1
+# HELP immich_server_maintenance_mode 1 while Immich is in maintenance mode; the exporter then collects nothing else.
+# TYPE immich_server_maintenance_mode gauge
+immich_server_maintenance_mode 0
 # HELP immich_server_onboarded 1 if admin onboarding has completed.
 # TYPE immich_server_onboarded gauge
 immich_server_onboarded 1
-# HELP immich_server_update_available 1 if a newer Immich release is available upstream.
+# HELP immich_server_update_available 1 if a newer Immich release is available upstream. Absent while Immich's version check is stale.
 # TYPE immich_server_update_available gauge
 immich_server_update_available 1
 # HELP immich_server_usage_bytes Total bytes used by all original assets server-wide (admin).
 # TYPE immich_server_usage_bytes gauge
 immich_server_usage_bytes 12000
+# HELP immich_server_version_check_timestamp_seconds Unix time of Immich's latest upstream version check; older than a week counts as stale.
+# TYPE immich_server_version_check_timestamp_seconds gauge
+immich_server_version_check_timestamp_seconds 1.7e+09
+# HELP immich_server_version_installed_timestamp_seconds Unix time the running Immich version first started, from the server's version history.
+# TYPE immich_server_version_installed_timestamp_seconds gauge
+immich_server_version_installed_timestamp_seconds 1.7924922e+09
 # HELP immich_sessions Number of active sessions for the key owner.
 # TYPE immich_sessions gauge
 immich_sessions 1
@@ -279,15 +405,28 @@ immich_up 1
 # HELP immich_user_photos Per-user photo count.
 # TYPE immich_user_photos gauge
 immich_user_photos{user="admin",user_id="u1"} 1000
+immich_user_photos{user="bob",user_id="u2"} 10
+# HELP immich_user_quota_bytes Per-user storage quota in bytes (omitted when unlimited).
+# TYPE immich_user_quota_bytes gauge
+immich_user_quota_bytes{user="bob",user_id="u2"} 1000
 # HELP immich_user_quota_unlimited 1 if the user has no storage quota (unlimited).
 # TYPE immich_user_quota_unlimited gauge
 immich_user_quota_unlimited{user="admin",user_id="u1"} 1
+immich_user_quota_unlimited{user="bob",user_id="u2"} 0
+# HELP immich_user_storage_bytes Per-user storage usage by asset type, in bytes.
+# TYPE immich_user_storage_bytes gauge
+immich_user_storage_bytes{type="IMAGE",user="admin",user_id="u1"} 9000
+immich_user_storage_bytes{type="IMAGE",user="bob",user_id="u2"} 900
+immich_user_storage_bytes{type="VIDEO",user="admin",user_id="u1"} 3000
+immich_user_storage_bytes{type="VIDEO",user="bob",user_id="u2"} 0
 # HELP immich_user_usage_bytes Per-user total storage usage, in bytes.
 # TYPE immich_user_usage_bytes gauge
 immich_user_usage_bytes{user="admin",user_id="u1"} 12000
+immich_user_usage_bytes{user="bob",user_id="u2"} 900
 # HELP immich_user_videos Per-user video count.
 # TYPE immich_user_videos gauge
 immich_user_videos{user="admin",user_id="u1"} 50
+immich_user_videos{user="bob",user_id="u2"} 0
 # HELP immich_users Number of users by status.
 # TYPE immich_users gauge
 immich_users{status="active"} 2
@@ -296,3 +435,7 @@ immich_users{status="deleted"} 1
 # TYPE immich_users_by_role gauge
 immich_users_by_role{role="admin"} 1
 immich_users_by_role{role="user"} 2
+# HELP immich_workflows Workflows by whether they are enabled (Immich 3+).
+# TYPE immich_workflows gauge
+immich_workflows{enabled="false"} 1
+immich_workflows{enabled="true"} 2

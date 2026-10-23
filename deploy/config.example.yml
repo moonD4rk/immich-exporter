@@ -12,7 +12,7 @@ immich:
 
   # The API token is a secret. Prefer the IMMICH_API_TOKEN env var, or point
   # token_file at a mounted secret. Avoid committing an inline `token:` to git.
-  # token_file: /run/secrets/immich_token
+  # token_file: /run/secrets/immich_token  (or IMMICH_API_TOKEN_FILE / --immich.token-file)
 
 web:
   listen_address: ":8000"
@@ -20,7 +20,7 @@ web:
 
 scrape:
   interval: 2m # cheap-metric poll cadence
-  breakdown_interval: 15m # expensive fan-out (cameras, people) refresh cadence
+  breakdown_interval: 15m # expensive collectors (cameras, people, places, duplicates) refresh cadence
   request_timeout: 20s
 
 collect:
@@ -34,3 +34,4 @@ limits:
   topn: 25 # cap model/lens/person/album breakdown series
   fanout_limit: 200 # skip a breakdown above this many distinct values
   fanout_concurrency: 8
+  city_limit: 200 # cities kept in immich_assets_by_city; the rest sum into "other" (0 keeps all)

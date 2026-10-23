@@ -19,6 +19,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: immich-exporter
           image: ghcr.io/moond4rk/immich-exporter:latest
@@ -29,10 +30,10 @@ spec:
             - name: IMMICH_API_TOKEN
               valueFrom:
                 secretKeyRef: { name: immich-exporter, key: token }
-            - name: SCRAPE_INTERVAL_SECONDS
-              value: "120"
-            - name: BREAKDOWN_INTERVAL_SECONDS
-              value: "900"
+            - name: SCRAPE_INTERVAL
+              value: 2m
+            - name: BREAKDOWN_INTERVAL
+              value: 15m
           ports:
             - { name: metrics, containerPort: 8000 }
           readinessProbe:
@@ -60,7 +61,8 @@ spec:
     - { name: metrics, port: 8000, targetPort: metrics }
 ---
 # Requires the Prometheus Operator (kube-prometheus-stack). Delete this document
-# if you scrape via static config or pod annotations instead.
+# if you scrape via static config or pod annotations instead. For alerts, put the
+# groups of deploy/alerts.yml under the spec of a PrometheusRule.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

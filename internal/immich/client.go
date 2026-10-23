@@ -18,14 +18,16 @@ import (
 // Client talks to one Immich server's REST API under a base URL (including the
 // /api prefix).
 type Client struct {
-	base  string
-	token string
-	hc    *http.Client
+	base      string
+	token     string
+	userAgent string
+	hc        *http.Client
 }
 
-// New returns a Client for the given API base URL, API key, and HTTP client.
-func New(base, token string, hc *http.Client) *Client {
-	return &Client{base: strings.TrimRight(base, "/"), token: token, hc: hc}
+// New returns a Client for the given API base URL, API key, User-Agent, and HTTP
+// client. The User-Agent lets Immich's logs tell the exporter's requests apart.
+func New(base, token, userAgent string, hc *http.Client) *Client {
+	return &Client{base: strings.TrimRight(base, "/"), token: token, userAgent: userAgent, hc: hc}
 }
 
 // APIError carries the HTTP status so callers can treat "expected" failures
@@ -66,6 +68,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	req.Header.Set("x-api-key", c.token)
 	req.Header.Set("Accept", "application/json")
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

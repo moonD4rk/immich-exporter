@@ -6,11 +6,13 @@ on:
     paths:
       - grafana/**
       - internal/exporter/testdata/metrics.golden
+      - deploy/alerts.yml
       - .github/workflows/dashboard.yml
   pull_request:
     paths:
       - grafana/**
       - internal/exporter/testdata/metrics.golden
+      - deploy/alerts.yml
       - .github/workflows/dashboard.yml
   workflow_dispatch:
 
@@ -33,9 +35,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: check alert rules
+        run: docker compose run --rm --no-deps -v "$PWD/deploy/alerts.yml:/alerts.yml:ro" --entrypoint promtool prometheus check rules /alerts.yml
       - name: start backends
         run: docker compose up -d --wait
-      - name: compare dashboard queries
+      - name: compare dashboard and alert queries
         env:
           DASHBOARD_PROMETHEUS_URL: http://127.0.0.1:19090
           DASHBOARD_VICTORIAMETRICS_URL: http://127.0.0.1:18428
