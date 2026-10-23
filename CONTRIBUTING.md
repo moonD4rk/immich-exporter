@@ -33,9 +33,11 @@ go test -race ./...
 
 - Keep code self-documenting; comments explain _why_, not _what_.
 - **New metrics:** add the descriptor in `internal/exporter/collector.go`, emit it, register it in `allDescs`, document it in the README metrics tables, and prefer gauges (no `_total` suffix unless the value only ever increases).
-- **Watch label cardinality.** Breakdowns that can explode must respect `TOPN` and `FANOUT_LIMIT` like the existing camera/person fan-outs.
+- **Watch label cardinality.** Breakdowns that can explode must respect `TOPN`, `FANOUT_LIMIT` or `GEO_CITY_LIMIT` like the existing camera, person and city breakdowns.
 - **The Immich client stays read-only** (`GET`, plus `POST /search/statistics` which is a read-only count query). The exporter must never mutate a library.
-- Admin-only or version-dependent endpoints should be collected through the `soft(...)` path in `poll.go` so the exporter degrades gracefully on non-admin keys and older Immich versions.
+- **Collectors** run through `r.soft(...)` or `r.hard(...)` in `poll.go`, which records `immich_exporter_collector_success` and its duration under the collector's name. Admin-only or version-dependent endpoints use `soft` so the exporter degrades gracefully on non-admin keys and older Immich versions; a 403 or 404 never fails the poll, even for a `hard` collector. Anything that pages through the whole library or fans out per value belongs in `collectBreakdowns`, which refreshes on `BREAKDOWN_INTERVAL`.
+- **`StatisticsSearchDto.filter`** only exists from Immich 3.2, and older servers silently ignore unknown fields, so a filter body sent to them counts every asset. Gate filter queries on `searchFilter(version)`.
+- **Alert rules** live in [`deploy/alerts.yml`](deploy/alerts.yml). `go test ./grafana` checks that they only use exported metrics, CI runs `promtool check rules` on them, and the Dashboard workflow evaluates each expression on Prometheus and VictoriaMetrics.
 
 ## Dashboard changes
 
