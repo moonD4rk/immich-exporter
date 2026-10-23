@@ -185,13 +185,15 @@ func library(l *layout) {
 	)
 	l.line(9,
 		span(16, assetsByYear()),
-		span(8, bars("Asset states", "Assets by state. Offline assets are missing on disk and turn red.",
+		span(8, bars("Asset states", "Assets by state. Hidden includes the video half of every live photo; locked "+
+			"counts every user's locked folder. Offline assets are missing on disk and turn red.",
 			latest("max(immich_assets_favorite)", "Favorites"),
 			latest("max(immich_assets_archived)", "Archived"),
 			latest("max(immich_assets_not_in_album)", "Not in an album"),
 			latest("max(immich_assets_motion)", "Motion photos"),
 			latest("max(immich_assets_encoded)", "Transcoded videos"),
 			latest("max(immich_assets_hidden)", "Hidden"),
+			latest("max(immich_assets_locked)", "Locked"),
 			latest("max(immich_assets_trashed)", "In trash"),
 			latest("max(immich_assets_offline)", "Offline")).
 			override("Offline", alarm(red)...)),
@@ -258,7 +260,7 @@ func places(l *layout) {
 		span(5, ranking("Top countries", "Countries with the most geotagged assets.",
 			`topk(15, max by (country) (immich_assets_by_country{country!="unknown"}))`, col("country", "Country"))),
 		span(8, ranking("Top cities", "Cities with the most geotagged assets.",
-			`topk(15, max by (city, country) (immich_assets_by_city{city!="unknown"}))`,
+			`topk(15, max by (city, country) (immich_assets_by_city{city!~"unknown|other"}))`,
 			col("city", "City"), col("country", "Country"))),
 	)
 }
@@ -277,6 +279,7 @@ func worldMap() *panel {
 			}},
 		}
 	}
+	// "other" sums the cities beyond the exporter's city limit and has no coordinates to place.
 	p := newPanel("geomap", "Map", "Countries as large bubbles, cities as small dots, both sized and colored by asset count. "+
 		"Each sits at the centroid of its own geotagged assets.",
 		target{
@@ -284,7 +287,7 @@ func worldMap() *panel {
 			format: "table", instant: true,
 		},
 		target{
-			expr: `max by (city, country, lat, lon) (immich_assets_by_city{city!="unknown"})`, legend: "{{city}}",
+			expr: `max by (city, country, lat, lon) (immich_assets_by_city{city!~"unknown|other"})`, legend: "{{city}}",
 			format: "table", instant: true,
 		})
 	p.set("unit", "short").set("color", obj{"mode": "continuous-BlPu"}).set("thresholds", steps(blue)).
@@ -562,6 +565,11 @@ func server(l *layout) {
 			seriesStyle{noLegend: true, bars: true},
 			series("sum(increase(immich_exporter_scrape_errors_total[$__interval]))", "Errors")).color(red).every("1h")),
 	)
+	l.line(8,
+		span(6, integrity()),
+		span(6, backups()),
+		span(12, collectors()),
+	)
 	unsnake := obj{"id": "renameByRegex", "options": obj{"regex": "^(.*)_(.*)$", "renamePattern": "$1 $2"}}
 	l.line(8,
 		span(12, stat("Features", "Server features enabled in Immich.",
@@ -569,16 +577,67 @@ func server(l *layout) {
 			unit("none").mappings(when(0, "Off", text), when(1, "On", green)).
 			opt("textMode", "value_and_name").opt("text", obj{"titleSize": 13, "valueSize": 22}).
 			transform(unsnake, unsnake)),
-		span(12, grid("Settings", "Server settings that shape retention and face grouping.",
+		span(12, grid("Settings", "Server settings that shape retention and face grouping, maintenance mode, how long "+
+			"the running version has been up, and the age of Immich's last check for new releases (orange after a week, "+
+			"when the update status is withheld as stale).",
 			latest("max(immich_config_trash_days)", "Trash retention (days)"),
 			latest("max(immich_config_user_delete_delay_days)", "User delete delay (days)"),
 			latest("max(immich_config_min_faces)", "Min faces per person"),
 			latest("max(immich_server_licensed)", "Licensed"),
-			latest("max(immich_server_onboarded)", "Onboarded")).
+			latest("max(immich_server_onboarded)", "Onboarded"),
+			latest("max(immich_server_maintenance_mode)", "Maintenance mode"),
+			latest("time() - max(immich_server_version_installed_timestamp_seconds)", "Version running for"),
+			latest("time() - max(immich_server_version_check_timestamp_seconds)", "Last release check")).
 			unit("none").color(text).opt("orientation", "horizontal").
 			override("Licensed", prop("mappings", valueMappings(when(0, "No", text), when(1, "Yes", text)))).
-			override("Onboarded", prop("mappings", valueMappings(when(0, "No", text), when(1, "Yes", text))))),
+			override("Onboarded", prop("mappings", valueMappings(when(0, "No", text), when(1, "Yes", text)))).
+			override("Maintenance mode", prop("mappings", valueMappings(when(0, "Off", text), when(1, "On", orange)))).
+			override("Version running for", prop("unit", duration), prop("decimals", 0)).
+			override("Last release check", prop("unit", duration), prop("decimals", 0),
+				prop("color", obj{"mode": "thresholds"}), prop("thresholds", steps(text, at(7*24*60*60, orange))))),
 	)
+}
+
+// integrity shows what Immich's own integrity checks flagged on their latest run.
+func integrity() *panel {
+	return bars("Integrity checks", "Files Immich's integrity checks flagged on their latest run: originals missing "+
+		"on disk, files in the library folders Immich doesn't track, and originals whose checksum changed.",
+		latest(`max(immich_integrity_issues{type="missing_file"})`, "Missing files"),
+		latest(`max(immich_integrity_issues{type="checksum_mismatch"})`, "Checksum mismatches"),
+		latest(`max(immich_integrity_issues{type="untracked_file"})`, "Untracked files")).
+		override("Missing files", alarm(red)...).
+		override("Checksum mismatches", alarm(red)...).
+		override("Untracked files", alarm(orange)...)
+}
+
+func backups() *panel {
+	const day = 24 * 60 * 60
+	return grid("Database backups", "Database backups in Immich's backups folder, and the age and size of the newest. "+
+		"Immich writes one every night unless its backup job is disabled; the age turns orange after 26 hours.",
+		latest("max(immich_database_backups)", "Backups"),
+		latest("max(immich_database_backups_size_bytes)", "Total size"),
+		latest("time() - max(immich_database_backup_last_timestamp_seconds)", "Newest"),
+		latest("max(immich_database_backup_last_size_bytes)", "Newest size")).
+		opt("orientation", "horizontal").
+		override("Total size", prop("unit", "bytes")).
+		override("Newest size", prop("unit", "bytes")).
+		override("Newest", prop("unit", duration), prop("decimals", 0), prop("color", obj{"mode": "thresholds"}),
+			prop("thresholds", steps(green, at(26*60*60, orange), at(3*day, red))))
+}
+
+// collectors lists every exporter collector by how its latest run went, slowest first.
+func collectors() *panel {
+	return table("Collectors", "Each exporter collector's latest run: whether it got its data, and how long it took. "+
+		"A failing collector usually means the API key lacks that permission or the Immich version lacks the endpoint; "+
+		"the exporter log names which.",
+		frame("max by (collector) (immich_exporter_collector_success)"),
+		frame("max by (collector) (immich_exporter_collector_duration_seconds)")).
+		transform(obj{"id": "merge", "options": obj{}}, organize([]string{"Time"},
+			col("collector", "Collector"), col("Value #A", "Status"), col("Value #B", "Duration"))).
+		override("Status", prop("mappings", valueMappings(when(0, "Failing", red), when(1, "OK", green))),
+			prop("custom.cellOptions", obj{"type": "color-text"}), prop("custom.width", 90)).
+		override("Duration", append(barCell("s"), prop("decimals", 2))...).
+		sortBy("Duration")
 }
 
 func more(l *layout) {
@@ -594,8 +653,38 @@ func more(l *layout) {
 			latest("max(immich_stacked_assets)", "Stacked assets"),
 			latest("max(immich_libraries)", "External libraries"),
 			latest("sum(max by (library) (immich_library_assets))", "External library assets"),
+			latest("sum(max by (library) (immich_library_usage_bytes))", "External library size"),
+			latest("sum(max by (enabled) (immich_workflows))", "Workflows"),
+			latest("max(immich_plugins)", "Plugins"),
 			latest("max(immich_api_keys)", "API keys"),
 			latest("max(immich_sessions)", "Sessions"),
-			latest("max(immich_notifications_unread)", "Unread notifications"))),
+			latest("max(immich_notifications_unread)", "Unread notifications")).
+			override("External library size", prop("unit", "bytes"))),
 	)
+	l.line(8,
+		span(12, fileSizes()),
+		span(12, rings("Metadata", "Share of the API key owner's visible assets whose EXIF names a camera, and share showing at "+
+			"least one recognized person (Immich 3.2+).",
+			latest("max(immich_assets_with_camera) / clamp_min(sum(max by (size) (immich_assets_by_file_size)), 1)", "Camera EXIF"),
+			latest("max(immich_assets_with_people) / clamp_min(sum(max by (size) (immich_assets_by_file_size)), 1)", "Recognized people"))),
+	)
+}
+
+// fileSizes keeps the buckets in size order, which one query by label would sort as text.
+func fileSizes() *panel {
+	buckets := []struct{ size, legend string }{
+		{"0-1MiB", "Under 1 MiB"},
+		{"1-5MiB", "1–5 MiB"},
+		{"5-20MiB", "5–20 MiB"},
+		{"20-100MiB", "20–100 MiB"},
+		{"100MiB-1GiB", "100 MiB–1 GiB"},
+		{"1GiB+", "Over 1 GiB"},
+		{"unknown", "Unknown size"},
+	}
+	var targets []target
+	for _, b := range buckets {
+		targets = append(targets, latest(`max(immich_assets_by_file_size{size="`+b.size+`"})`, b.legend))
+	}
+	return bars("File sizes", "The API key owner's visible assets (timeline and archive) by the size of their "+
+		"original file (Immich 3.2+).", targets...)
 }
