@@ -2,6 +2,9 @@ global:
   scrape_interval: 60s
   scrape_timeout: 30s
 
+rule_files:
+  - alerts.yml
+
 scrape_configs:
   - job_name: immich-exporter
     static_configs:

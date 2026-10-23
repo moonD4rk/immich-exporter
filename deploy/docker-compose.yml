@@ -17,8 +17,8 @@ services:
       IMMICH_HOST: ${IMMICH_HOST:-immich-server}
       IMMICH_PORT: ${IMMICH_PORT:-2283}
       IMMICH_API_TOKEN: ${IMMICH_API_TOKEN:?set IMMICH_API_TOKEN in .env}
-      SCRAPE_INTERVAL_SECONDS: "120"
-      BREAKDOWN_INTERVAL_SECONDS: "900"
+      SCRAPE_INTERVAL: 2m
+      BREAKDOWN_INTERVAL: 15m
       # COLLECT_PEOPLE: "true"   # per-person stats (extra API calls)
     ports:
       - "8000:8000"
@@ -29,6 +29,7 @@ services:
     container_name: immich-prometheus
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
