@@ -1,6 +1,6 @@
 # Cross-compile natively on the build host (e.g. arm64) to the target arch.
 # Base images are pinned by digest so Dependabot (docker ecosystem) can bump them.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d530cf60723abf1ffae0cd16bb546b379ec0550d2f3815e5b16ed69dbc00fba4 AS build
 WORKDIR /src
 # Modules stay in this layer (not a cache mount) so the registry/GHA layer cache
 # restores them across CI runs; the compile cache below only helps local rebuilds.
