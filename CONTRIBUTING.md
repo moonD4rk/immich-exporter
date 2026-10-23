@@ -32,7 +32,7 @@ go test -race ./...
 ```
 
 - Keep code self-documenting; comments explain _why_, not _what_.
-- **New metrics:** add the descriptor in `internal/exporter/collector.go`, emit it, register it in `allDescs`, document it in the README metrics tables, and prefer gauges (no `_total` suffix unless the value only ever increases).
+- **New metrics:** add the descriptor in `internal/exporter/collector.go`, emit it, register it in `allDescs`, document it in [`docs/metrics.md`](docs/metrics.md), and prefer gauges (no `_total` suffix unless the value only ever increases).
 - **Watch label cardinality.** Breakdowns that can explode must respect `TOPN`, `FANOUT_LIMIT` or `GEO_CITY_LIMIT` like the existing camera, person and city breakdowns.
 - **The Immich client stays read-only** (`GET`, plus `POST /search/statistics` which is a read-only count query). The exporter must never mutate a library.
 - **Collectors** run through `r.soft(...)` or `r.hard(...)` in `poll.go`, which records `immich_exporter_collector_success` and its duration under the collector's name. Admin-only or version-dependent endpoints use `soft` so the exporter degrades gracefully on non-admin keys and older Immich versions; a 403 or 404 never fails the poll, even for a `hard` collector. Anything that pages through the whole library or fans out per value belongs in `collectBreakdowns`, which refreshes on `BREAKDOWN_INTERVAL`.

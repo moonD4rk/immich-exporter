@@ -8,6 +8,6 @@
 - [ ] `go vet ./...` passes
 - [ ] `golangci-lint run` passes
 - [ ] `go test -race ./...` passes
-- [ ] New/changed metrics are documented in the README tables
+- [ ] New/changed metrics are documented in `docs/metrics.md`
 - [ ] Label cardinality is bounded (respects `TOPN` / `FANOUT_LIMIT` where relevant)
 - [ ] The Immich client remains read-only
