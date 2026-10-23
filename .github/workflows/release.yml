@@ -2,6 +2,7 @@ name: release
 
 # Manual release: trigger from the Actions tab and type the version (e.g. v1.0.0).
 # The workflow creates and pushes that tag, then builds binaries and the image.
+# image-only rebuilds the image of a release whose tag and binaries already exist.
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +10,10 @@ on:
         description: "Version to release (e.g. v1.0.0)"
         required: true
         type: string
+      image-only:
+        description: "Only build, push and sign the image of an existing release"
+        type: boolean
+        default: false
 
 # Never cancel a release mid-flight; queue a second dispatch behind the first.
 concurrency:
@@ -17,6 +22,7 @@ concurrency:
 
 jobs:
   binaries:
+    if: ${{ !inputs.image-only }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -49,6 +55,7 @@ jobs:
 
   image:
     needs: binaries
+    if: ${{ !cancelled() && needs.binaries.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,7 +96,7 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: Sign the image
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
