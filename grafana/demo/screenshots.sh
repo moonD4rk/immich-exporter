@@ -54,6 +54,7 @@ bands=(
   "users|Users & storage|Jobs"
   "jobs|Jobs|Server & exporter"
   "server|Server & exporter|More"
+  "more|More|"
 )
 controls=
 for band in "${bands[@]}"; do

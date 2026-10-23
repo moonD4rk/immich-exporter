@@ -642,7 +642,8 @@ func collectors() *panel {
 
 func more(l *layout) {
 	l.section("More", true)
-	l.line(5,
+	// Tall enough for Grafana to lay the tiles out in two rows, wide enough to keep a unit beside its value.
+	l.line(8,
 		span(24, grid("Library extras", "Remaining library counters.",
 			latest("max(immich_tags)", "Tags"),
 			latest("max(immich_tags_root)", "Top-level tags"),
