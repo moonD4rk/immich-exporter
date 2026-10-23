@@ -33,11 +33,18 @@ type labeledVal struct {
 
 // userStat holds the per-user volumetrics from /server/statistics.
 type userStat struct {
-	id, name       string
-	photos, videos float64
-	usageBytes     float64
-	quotaBytes     float64
-	quotaUnlimited bool
+	id, name               string
+	photos, videos         float64
+	usageBytes             float64
+	photoBytes, videoBytes opt
+	quotaBytes             float64
+	quotaUnlimited         bool
+}
+
+// collectorStat is how one collector fared on its latest run.
+type collectorStat struct {
+	ok      bool
+	seconds float64
 }
 
 // cityKey identifies a city within a country; city names repeat across
@@ -67,18 +74,35 @@ type aboutInfo struct {
 
 type healthSnap struct {
 	serverUp, scrapeSuccess, scrapeDurationSeconds, lastSuccessUnix, keyIsAdmin float64
+	collectors                                                                  map[string]collectorStat
 }
 
 type serverSnap struct {
-	about         aboutInfo
-	licensed      float64
-	latestVersion string
-	updateAvail   float64
-	features      map[string]float64 // feature -> 0/1; keys change across Immich versions, so a map is deliberate
+	about                                    aboutInfo
+	licensed                                 float64
+	latestVersion                            string // empty while the upstream version check is stale
+	updateAvail                              float64
+	maintenance                              opt
+	versionInstalledUnix, versionCheckedUnix opt
+	features                                 map[string]float64 // feature -> 0/1; keys change across Immich versions, so a map is deliberate
 	trashDays, userDeleteDelayDays, minFaces,
 	initialized, onboarded opt
 	// storage of the volume backing UPLOAD_LOCATION; the three are set together
 	storageSizeBytes, storageUsedBytes, storageAvailableBytes opt
+}
+
+// opsSnap is Immich's own upkeep: its integrity checks and database backups.
+type opsSnap struct {
+	integrity                       map[string]float64 // report type -> flagged files
+	backups, backupsBytes           float64
+	backupsOK                       bool
+	lastBackupUnix, lastBackupBytes opt
+}
+
+// metadataSnap counts assets through StatisticsSearchDto.filter, which only Immich 3.2+ understands.
+type metadataSnap struct {
+	withPeople, withCamera opt
+	bySize                 map[string]float64 // file-size bucket -> count
 }
 
 type assetsSnap struct {
@@ -89,6 +113,7 @@ type assetsSnap struct {
 	byRating         map[string]float64 // "1".."5","unrated"
 	favorite, archived, hidden, offline,
 	motion, notInAlbum, encoded, trashed opt
+	locked opt // instance-wide, unlike the owner-scoped states above
 }
 
 type camerasSnap struct {
@@ -143,10 +168,13 @@ type contentSnap struct {
 	stacksOK                       bool
 	libraries                      opt
 	perLibrary                     []labeledVal
+	perLibraryBytes                []labeledVal
 	apiKeys, sessions              opt
 	notifUnread                    float64
 	notifOK                        bool
 	notifByLevel                   map[string]float64
+	workflows                      map[string]float64 // enabled "true"/"false" -> count
+	plugins                        opt
 }
 
 type jobsSnap struct {
@@ -159,20 +187,23 @@ type jobsSnap struct {
 // every Prometheus scrape, so a label combination that disappears upstream
 // simply stops being emitted (no stale series).
 type snapshot struct {
-	health  healthSnap
-	server  serverSnap
-	assets  assetsSnap
-	cameras camerasSnap
-	geo     geoSnap
-	people  peopleSnap
-	users   usersSnap
-	albums  albumsSnap
-	content contentSnap
-	jobs    jobsSnap
+	health   healthSnap
+	server   serverSnap
+	ops      opsSnap
+	assets   assetsSnap
+	metadata metadataSnap
+	cameras  camerasSnap
+	geo      geoSnap
+	people   peopleSnap
+	users    usersSnap
+	albums   albumsSnap
+	content  contentSnap
+	jobs     jobsSnap
 }
 
 func newSnapshot() *snapshot {
 	return &snapshot{
+		health: healthSnap{collectors: map[string]collectorStat{}},
 		server: serverSnap{features: map[string]float64{}},
 		assets: assetsSnap{
 			byType:        map[string]float64{},
@@ -186,12 +217,14 @@ func newSnapshot() *snapshot {
 			byCity:           map[cityKey]float64{},
 			cityCentroids:    map[cityKey]latlon{},
 		},
-		users: usersSnap{byStatus: map[string]float64{}, byRole: map[string]float64{}},
+		ops:      opsSnap{integrity: map[string]float64{}},
+		metadata: metadataSnap{bySize: map[string]float64{}},
+		users:    usersSnap{byStatus: map[string]float64{}, byRole: map[string]float64{}},
 		albums: albumsSnap{
 			sharedLinks: sharedLinksSnap{byType: map[string]float64{}},
 			partners:    map[string]float64{},
 		},
-		content: contentSnap{notifByLevel: map[string]float64{}},
+		content: contentSnap{notifByLevel: map[string]float64{}, workflows: map[string]float64{}},
 		jobs:    jobsSnap{paused: map[string]float64{}},
 	}
 }
@@ -216,24 +249,36 @@ var (
 	dScrapeErrors      = desc("exporter_scrape_errors_total", "Cumulative count of failed Immich API calls.")
 	dExporterBuildInfo = desc("exporter_build_info", "Exporter build metadata (value is always 1).", "version", "goversion")
 	dKeyIsAdmin        = desc("key_is_admin", "1 if the configured API key belongs to an admin user (unlocks instance-wide and job metrics).")
+	dCollectorSuccess  = desc("exporter_collector_success", "1 if the collector's latest run got its data; 0 if it failed, including when the API key may not use it or the server lacks it.", "collector")
+	dCollectorDuration = desc("exporter_collector_duration_seconds", "Duration of the collector's latest run, in seconds.", "collector")
 
 	// server / system
-	dServerUp        = desc("up", "1 if the Immich server answered /server/ping.")
-	dServerInfo      = desc("server_info", "Immich server version and dependency metadata (value is always 1).", "version", "source_ref", "source_commit", "build", "nodejs", "exiftool", "ffmpeg", "imagemagick", "libvips")
-	dServerLicensed  = desc("server_licensed", "1 if the Immich server has an active license.")
-	dLatestVersion   = desc("server_latest_version_info", "Latest Immich release available upstream (value is always 1).", "release_version")
-	dUpdateAvailable = desc("server_update_available", "1 if a newer Immich release is available upstream.")
-	dFeature         = desc("server_feature", "Immich server feature flags (1 enabled, 0 disabled).", "feature")
-	dConfigTrashDays = desc("config_trash_days", "Days assets stay in trash before automatic deletion.")
-	dConfigDelDelay  = desc("config_user_delete_delay_days", "Grace period before a deleted user is purged, in days.")
-	dConfigMinFaces  = desc("config_min_faces", "Minimum faces threshold for facial-recognition clustering.")
-	dInitialized     = desc("server_initialized", "1 if the server has completed first-run initialization.")
-	dOnboarded       = desc("server_onboarded", "1 if admin onboarding has completed.")
+	dServerUp         = desc("up", "1 if the Immich server answered /server/ping.")
+	dServerInfo       = desc("server_info", "Immich server version and dependency metadata (value is always 1).", "version", "source_ref", "source_commit", "build", "nodejs", "exiftool", "ffmpeg", "imagemagick", "libvips")
+	dServerLicensed   = desc("server_licensed", "1 if the Immich server has an active license.")
+	dLatestVersion    = desc("server_latest_version_info", "Latest Immich release available upstream (value is always 1). Absent while Immich's version check is stale.", "release_version")
+	dUpdateAvailable  = desc("server_update_available", "1 if a newer Immich release is available upstream. Absent while Immich's version check is stale.")
+	dVersionChecked   = desc("server_version_check_timestamp_seconds", "Unix time of Immich's latest upstream version check; older than a week counts as stale.")
+	dVersionInstalled = desc("server_version_installed_timestamp_seconds", "Unix time the running Immich version first started, from the server's version history.")
+	dMaintenance      = desc("server_maintenance_mode", "1 while Immich is in maintenance mode; the exporter then collects nothing else.")
+	dFeature          = desc("server_feature", "Immich server feature flags (1 enabled, 0 disabled).", "feature")
+	dConfigTrashDays  = desc("config_trash_days", "Days assets stay in trash before automatic deletion.")
+	dConfigDelDelay   = desc("config_user_delete_delay_days", "Grace period before a deleted user is purged, in days.")
+	dConfigMinFaces   = desc("config_min_faces", "Minimum faces threshold for facial-recognition clustering.")
+	dInitialized      = desc("server_initialized", "1 if the server has completed first-run initialization.")
+	dOnboarded        = desc("server_onboarded", "1 if admin onboarding has completed.")
 
 	// storage
 	dStorageSize  = desc("storage_size_bytes", "Total capacity of the filesystem backing the upload location.")
 	dStorageUsed  = desc("storage_used_bytes", "Used bytes on the upload filesystem (whole volume, not just Immich).")
 	dStorageAvail = desc("storage_available_bytes", "Free bytes on the upload filesystem.")
+
+	// integrity checks & database backups (admin)
+	dIntegrity      = desc("integrity_issues", "Files flagged by Immich's latest integrity checks, by report type.", "type")
+	dBackups        = desc("database_backups", "Database backups in Immich's backups folder.")
+	dBackupsSize    = desc("database_backups_size_bytes", "Total size of the database backups in Immich's backups folder.")
+	dBackupLast     = desc("database_backup_last_timestamp_seconds", "Unix time of the newest database backup, read from its file name.")
+	dBackupLastSize = desc("database_backup_last_size_bytes", "Size of the newest database backup, in bytes.")
 
 	// assets
 	dAssets       = desc("assets", "Number of assets by type.", "type")
@@ -243,12 +288,16 @@ var (
 	dAssetsByRate = desc("assets_by_rating", "Assets by star rating (1-5, or 'unrated').", "rating")
 	dFavorite     = desc("assets_favorite", "Number of favourited assets.")
 	dArchived     = desc("assets_archived", "Number of archived assets.")
-	dHidden       = desc("assets_hidden", "Number of hidden assets.")
+	dHidden       = desc("assets_hidden", "Number of hidden assets, including the video halves of live photos.")
+	dLocked       = desc("assets_locked", "Assets in users' PIN-locked folders, summed over every user (admin).")
 	dOffline      = desc("assets_offline", "Number of offline assets (file missing on disk).")
 	dMotion       = desc("assets_motion", "Number of motion / live-photo assets.")
 	dNotInAlbum   = desc("assets_not_in_album", "Number of assets not assigned to any album.")
 	dEncoded      = desc("assets_encoded", "Number of transcoded video assets.")
 	dTrashed      = desc("assets_trashed", "Number of trashed assets.")
+	dWithPeople   = desc("assets_with_people", "Visible assets (timeline and archive) showing at least one recognized person (Immich 3.2+).")
+	dWithCamera   = desc("assets_with_camera", "Visible assets (timeline and archive) whose EXIF names a camera make (Immich 3.2+).")
+	dAssetsBySize = desc("assets_by_file_size", "Visible assets (timeline and archive) by original file size (Immich 3.2+).", "size")
 
 	// cameras / EXIF
 	dCameraMakes   = desc("camera_makes", "Number of distinct camera makes in the library.")
@@ -280,6 +329,7 @@ var (
 	dUserPhotos  = desc("user_photos", "Per-user photo count.", "user_id", "user")
 	dUserVideos  = desc("user_videos", "Per-user video count.", "user_id", "user")
 	dUserUsage   = desc("user_usage_bytes", "Per-user total storage usage, in bytes.", "user_id", "user")
+	dUserStorage = desc("user_storage_bytes", "Per-user storage usage by asset type, in bytes.", "user_id", "user", "type")
 	dUserQuota   = desc("user_quota_bytes", "Per-user storage quota in bytes (omitted when unlimited).", "user_id", "user")
 	dUserUnlim   = desc("user_quota_unlimited", "1 if the user has no storage quota (unlimited).", "user_id", "user")
 
@@ -311,10 +361,13 @@ var (
 	dStackedAssets = desc("stacked_assets", "Number of assets grouped into stacks.")
 	dLibraries     = desc("libraries", "Number of configured external libraries.")
 	dLibAssets     = desc("library_assets", "Assets per external library.", "library_id", "library")
+	dLibUsage      = desc("library_usage_bytes", "Storage used per external library, in bytes.", "library_id", "library")
 	dAPIKeys       = desc("api_keys", "Number of API keys for the key owner.")
 	dSessions      = desc("sessions", "Number of active sessions for the key owner.")
 	dNotifUnread   = desc("notifications_unread", "Number of unread notifications.")
 	dNotifByLevel  = desc("notifications_by_level", "Notifications by level.", "level")
+	dWorkflows     = desc("workflows", "Workflows by whether they are enabled (Immich 3+).", "enabled")
+	dPlugins       = desc("plugins", "Installed plugins (Immich 3+).")
 
 	// jobs
 	dJobQueue       = desc("job_queue", "Jobs in each queue by state.", "queue", "state")
@@ -350,8 +403,13 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	emit(ch, dScrapeDuration, s.health.scrapeDurationSeconds)
 	emit(ch, dLastSuccess, s.health.lastSuccessUnix)
 	emit(ch, dKeyIsAdmin, s.health.keyIsAdmin)
+	for name, st := range s.health.collectors {
+		emit(ch, dCollectorSuccess, boolf(st.ok), name)
+		emit(ch, dCollectorDuration, st.seconds, name)
+	}
 
 	emitServer(ch, s)
+	emitOps(ch, s)
 	emitAssets(ch, s)
 	emitCameras(ch, s)
 	emitGeo(ch, s)
@@ -391,6 +449,9 @@ func emitServer(ch chan<- prometheus.Metric, s *snapshot) {
 		emit(ch, dLatestVersion, 1, sv.latestVersion)
 		emit(ch, dUpdateAvailable, sv.updateAvail)
 	}
+	emitOpt(ch, dVersionChecked, sv.versionCheckedUnix)
+	emitOpt(ch, dVersionInstalled, sv.versionInstalledUnix)
+	emitOpt(ch, dMaintenance, sv.maintenance)
 	for f, v := range sv.features {
 		emit(ch, dFeature, v, f)
 	}
@@ -404,7 +465,26 @@ func emitServer(ch chan<- prometheus.Metric, s *snapshot) {
 	emitOpt(ch, dStorageAvail, sv.storageAvailableBytes)
 }
 
+func emitOps(ch chan<- prometheus.Metric, s *snapshot) {
+	o := &s.ops
+	for t, v := range o.integrity {
+		emit(ch, dIntegrity, v, t)
+	}
+	if o.backupsOK {
+		emit(ch, dBackups, o.backups)
+		emit(ch, dBackupsSize, o.backupsBytes)
+	}
+	emitOpt(ch, dBackupLast, o.lastBackupUnix)
+	emitOpt(ch, dBackupLastSize, o.lastBackupBytes)
+}
+
 func emitAssets(ch chan<- prometheus.Metric, s *snapshot) {
+	m := &s.metadata
+	emitOpt(ch, dWithPeople, m.withPeople)
+	emitOpt(ch, dWithCamera, m.withCamera)
+	for size, v := range m.bySize {
+		emit(ch, dAssetsBySize, v, size)
+	}
 	a := &s.assets
 	for t, v := range a.byType {
 		emit(ch, dAssets, v, t)
@@ -427,6 +507,7 @@ func emitAssets(ch chan<- prometheus.Metric, s *snapshot) {
 	emitOpt(ch, dNotInAlbum, a.notInAlbum)
 	emitOpt(ch, dEncoded, a.encoded)
 	emitOpt(ch, dTrashed, a.trashed)
+	emitOpt(ch, dLocked, a.locked)
 }
 
 func emitCameras(ch chan<- prometheus.Metric, s *snapshot) {
@@ -489,6 +570,12 @@ func emitUsers(ch chan<- prometheus.Metric, s *snapshot) {
 		emit(ch, dUserPhotos, us.photos, us.id, us.name)
 		emit(ch, dUserVideos, us.videos, us.id, us.name)
 		emit(ch, dUserUsage, us.usageBytes, us.id, us.name)
+		if us.photoBytes.ok {
+			emit(ch, dUserStorage, us.photoBytes.v, us.id, us.name, "IMAGE")
+		}
+		if us.videoBytes.ok {
+			emit(ch, dUserStorage, us.videoBytes.v, us.id, us.name, "VIDEO")
+		}
 		if us.quotaUnlimited {
 			emit(ch, dUserUnlim, 1, us.id, us.name)
 		} else {
@@ -549,6 +636,9 @@ func emitContent(ch chan<- prometheus.Metric, s *snapshot) {
 	for _, l := range c.perLibrary {
 		emit(ch, dLibAssets, l.value, l.id, l.name)
 	}
+	for _, l := range c.perLibraryBytes {
+		emit(ch, dLibUsage, l.value, l.id, l.name)
+	}
 	emitOpt(ch, dAPIKeys, c.apiKeys)
 	emitOpt(ch, dSessions, c.sessions)
 	if c.notifOK {
@@ -557,6 +647,10 @@ func emitContent(ch chan<- prometheus.Metric, s *snapshot) {
 			emit(ch, dNotifByLevel, v, lvl)
 		}
 	}
+	for enabled, v := range c.workflows {
+		emit(ch, dWorkflows, v, enabled)
+	}
+	emitOpt(ch, dPlugins, c.plugins)
 }
 
 func emitJobs(ch chan<- prometheus.Metric, s *snapshot) {

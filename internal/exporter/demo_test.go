@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"cmp"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -240,12 +241,12 @@ func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
 
 	images, videos := math.Round(24610+0.93*added), math.Round(1882+0.07*added)
 	s := newSnapshot()
-	s.health = healthSnap{
-		serverUp: 1, scrapeSuccess: 1, keyIsAdmin: 1,
-		scrapeDurationSeconds: 1.1 + 0.6*tl.r.Float64(),
-		lastSuccessUnix:       float64(t.Add(-41 * time.Second).Unix()),
-	}
-	demoServer(s, images, videos)
+	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, 1
+	s.health.scrapeDurationSeconds = 1.1 + 0.6*tl.r.Float64()
+	s.health.lastSuccessUnix = float64(t.Add(-41 * time.Second).Unix())
+	demoCollectors(s, tl.r)
+	demoServer(s, t, images, videos)
+	demoOps(s, t)
 	demoAssets(s, t.Year(), images, videos, home, trip)
 	demoCameras(s, images+videos)
 	demoGeo(s, home, trip)
@@ -260,13 +261,33 @@ func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
 	return s
 }
 
-func demoServer(s *snapshot, images, videos float64) {
+// demoCollectorCosts are the demo's collectors and their typical run time in seconds.
+var demoCollectorCosts = map[string]float64{
+	"maintenance": 0.004, "users/me": 0.006, "server/about": 0.005, "server/version-check": 0.004,
+	"server/version-history": 0.005, "server/features": 0.004, "server/config": 0.004, "server/storage": 0.006,
+	"assets": 0.09, "assets/state": 0.21, "assets/rating": 0.16, "timeline/buckets": 0.05, "people": 0.08,
+	"admin/users": 0.01, "assets/locked": 0.03, "jobs": 0.02, "integrity": 0.01, "database-backups": 0.01, "albums": 0.04,
+	"albums/statistics": 0.01, "shared-links": 0.01, "partners": 0.01, "tags": 0.01, "memories": 0.02,
+	"libraries": 0.05, "api-keys": 0.01, "sessions": 0.01, "notifications": 0.01, "workflows": 0.01, "plugins": 0.01,
+	"cameras": 0.92, "geo": 0.31, "people/statistics": 0.84, "duplicates": 0.38, "stacks": 0.03, "assets/metadata": 0.19,
+}
+
+func demoCollectors(s *snapshot, r *rand.Rand) {
+	for _, name := range slices.Sorted(maps.Keys(demoCollectorCosts)) {
+		s.health.collectors[name] = collectorStat{ok: true, seconds: demoCollectorCosts[name] * (0.8 + 0.4*r.Float64())}
+	}
+}
+
+func demoServer(s *snapshot, t time.Time, images, videos float64) {
 	sv := &s.server
 	sv.about = aboutInfo{
-		version: "v3.1.2", sourceRef: "v3.1.2", sourceCommit: "8c4e1f0", build: "18493417215",
-		nodejs: "v22.20.0", exiftool: "13.36", ffmpeg: "7.1.1-7", imagemagick: "7.1.2-3", libvips: "8.17.2", ok: true,
+		version: "v3.3.5", sourceRef: "v3.3.5", sourceCommit: "4b1c9e2", build: "18624409130",
+		nodejs: "v24.21.0", exiftool: "13.59", ffmpeg: "7.1.4-3", imagemagick: "7.1.2-21", libvips: "8.18.7", ok: true,
 	}
-	sv.licensed, sv.latestVersion = 1, "v3.1.2"
+	sv.licensed, sv.latestVersion = 1, "v3.3.5"
+	sv.maintenance = set(0)
+	sv.versionCheckedUnix = set(float64(t.Add(-37 * time.Minute).Unix()))
+	sv.versionInstalledUnix = set(float64(t.Add(-4*24*time.Hour - 7*time.Hour).Unix()))
 	for _, f := range []string{"smart_search", "facial_recognition", "duplicate_detection", "map", "reverse_geocoding", "ocr", "sidecar", "search", "trash", "password_login", "email"} {
 		sv.features[f] = 1
 	}
@@ -279,7 +300,27 @@ func demoServer(s *snapshot, images, videos float64) {
 	sv.storageSizeBytes, sv.storageUsedBytes, sv.storageAvailableBytes = set(4e12), set(used), set(4e12-used)
 }
 
+// demoOps keeps fourteen nightly backups, the newest from 02:00 today, and three files the integrity check flagged.
+func demoOps(s *snapshot, t time.Time) {
+	o := &s.ops
+	o.integrity["checksum_mismatch"], o.integrity["missing_file"], o.integrity["untracked_file"] = 0, 0, 3
+	last := time.Date(t.Year(), t.Month(), t.Day(), 2, 0, 0, 0, t.Location())
+	if last.After(t) {
+		last = last.AddDate(0, 0, -1)
+	}
+	o.backups, o.backupsBytes, o.backupsOK = 14, 14*47.2e6, true
+	o.lastBackupUnix, o.lastBackupBytes = set(float64(last.Unix())), set(48.1e6)
+}
+
 func demoAssets(s *snapshot, year int, images, videos, home, trip float64) {
+	total := images + videos
+	m := &s.metadata
+	m.withPeople, m.withCamera = set(math.Round(0.41*total)), set(math.Round(0.87*total))
+	for size, share := range map[string]float64{
+		"0-1MiB": 0.09, "1-5MiB": 0.58, "5-20MiB": 0.21, "20-100MiB": 0.08, "100MiB-1GiB": 0.035, "1GiB+": 0.005,
+	} {
+		m.bySize[size] = math.Round(share * total)
+	}
 	a := &s.assets
 	a.byType["IMAGE"], a.byType["VIDEO"] = images, videos
 	a.storageByType["IMAGE"], a.storageByType["VIDEO"] = images*demoImageBytes, videos*demoVideoBytes
@@ -297,7 +338,7 @@ func demoAssets(s *snapshot, year int, images, videos, home, trip float64) {
 	}
 	a.byRating["unrated"] = unrated
 	a.favorite = set(math.Round(1284 + 0.03*(home+trip)))
-	a.archived, a.hidden, a.offline, a.trashed = set(862), set(37), set(0), set(54)
+	a.archived, a.hidden, a.offline, a.trashed, a.locked = set(862), set(37), set(0), set(54), set(18)
 	a.motion = set(math.Round(2214 + 0.11*home))
 	a.notInAlbum = set(math.Round(9960 + 0.8*home + 0.1*trip))
 	a.encoded = set(videos - 2)
@@ -373,6 +414,7 @@ func demoUsersAt(s *snapshot, images, videos float64) {
 		u.perUser = append(u.perUser, userStat{
 			id: d.id, name: d.name, photos: photos, videos: vids,
 			usageBytes: photos*demoImageBytes + vids*demoVideoBytes, quotaBytes: d.quota, quotaUnlimited: d.quota == 0,
+			photoBytes: set(photos * demoImageBytes), videoBytes: set(vids * demoVideoBytes),
 		})
 	}
 }
@@ -415,9 +457,12 @@ func demoContent(s *snapshot, trip float64) {
 	c.stacks, c.stackedAssets, c.stacksOK = 128, 341, true
 	c.libraries = set(2)
 	c.perLibrary = []labeledVal{{"l1", "NAS Archive", 8420}, {"l2", "Film Scans", 1236}}
+	c.perLibraryBytes = []labeledVal{{"l1", "NAS Archive", 8420 * 5.1e6}, {"l2", "Film Scans", 1236 * 31e6}}
 	c.apiKeys, c.sessions = set(4), set(7)
 	c.notifUnread, c.notifOK = 2, true
 	c.notifByLevel["info"], c.notifByLevel["success"], c.notifByLevel["warning"], c.notifByLevel["error"] = 6, 3, 1, 1
+	c.workflows["true"], c.workflows["false"] = 2, 1
+	c.plugins = set(1)
 }
 
 func demoRegistry(snap *atomic.Pointer[snapshot], errs *atomic.Int64) *prometheus.Registry {

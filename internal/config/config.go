@@ -61,6 +61,7 @@ type Limits struct {
 	TopN              int `yaml:"topn"`
 	FanoutLimit       int `yaml:"fanout_limit"`
 	FanoutConcurrency int `yaml:"fanout_concurrency"`
+	CityLimit         int `yaml:"city_limit"`
 }
 
 // Default returns the built-in configuration before any YAML/env/flag overlay.
@@ -74,7 +75,7 @@ func Default() Config {
 			RequestTimeout:    model.Duration(20 * time.Second),
 		},
 		Collect: Collect{Camera: true, Geo: true, Ratings: true, People: false, Heavy: true},
-		Limits:  Limits{TopN: 25, FanoutLimit: 200, FanoutConcurrency: 8},
+		Limits:  Limits{TopN: 25, FanoutLimit: 200, FanoutConcurrency: 8, CityLimit: 200},
 	}
 }
 

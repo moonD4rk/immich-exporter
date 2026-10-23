@@ -24,9 +24,14 @@ func TestGoldenMetrics(t *testing.T) {
 	if s == nil {
 		t.Fatal("nil snapshot")
 	}
-	// Pin the two wall-clock-dependent values.
+	// Pin the wall-clock-dependent values.
 	s.health.scrapeDurationSeconds = 0.42
 	s.health.lastSuccessUnix = 1.7e9
+	s.server.versionCheckedUnix = set(1.7e9)
+	for name, st := range s.health.collectors {
+		st.seconds = 0.01
+		s.health.collectors[name] = st
+	}
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(&collector{snap: snap, scrapeErrors: p.scrapeErrors, version: "golden", goVersion: "go-golden"})
