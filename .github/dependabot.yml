@@ -23,6 +23,9 @@ updates:
       interval: weekly
 
   - package-ecosystem: docker-compose
-    directory: "/grafana/testdata"
+    directories: ["/deploy", "/grafana/demo", "/grafana/testdata"]
     schedule:
       interval: weekly
+    groups:
+      docker-compose:
+        patterns: ["*"]
