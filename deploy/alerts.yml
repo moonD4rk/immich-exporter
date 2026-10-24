@@ -58,7 +58,9 @@ groups:
           description: A database restore or other maintenance task may be stuck; the exporter collects nothing else meanwhile.
 
       - alert: ImmichJobsFailing
-        expr: max by (queue) (delta(immich_job_queue{state="failed"}[1h])) > 0
+        # Aggregate before comparing: delta() per series reads a restarted exporter's new series as growth from
+        # zero on VictoriaMetrics, so every restart while a job sits failed would fire this for an hour.
+        expr: max by (queue) (immich_job_queue{state="failed"}) > max by (queue) (immich_job_queue{state="failed"} offset 1h)
         for: 15m
         labels:
           severity: warning
