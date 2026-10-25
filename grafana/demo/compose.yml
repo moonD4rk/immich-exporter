@@ -3,7 +3,7 @@ name: immich-dashboard-demo
 
 services:
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.154.0
+    image: victoriametrics/victoria-metrics:v1.154.1
     command:
       - -retentionPeriod=1y
       - -search.latencyOffset=0s
@@ -22,6 +22,6 @@ services:
     ports: ["127.0.0.1:13001:3000"]
 
   renderer:
-    image: grafana/grafana-image-renderer:v5.12.7
+    image: grafana/grafana-image-renderer:v5.12.8
     environment:
       AUTH_TOKEN: immich-demo
