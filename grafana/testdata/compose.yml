@@ -13,13 +13,13 @@ services:
         aliases: [exporter-a, exporter-b]
 
   prometheus:
-    image: prom/prometheus:v3.15.0
+    image: prom/prometheus:v3.15.1
     volumes:
       - ./scrape.yml:/etc/prometheus/prometheus.yml:ro
     ports: ["127.0.0.1:19090:9090"]
 
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.154.0
+    image: victoriametrics/victoria-metrics:v1.154.1
     command:
       - -promscrape.config=/etc/scrape.yml
       - -promscrape.config.strictParse=false
