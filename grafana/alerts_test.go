@@ -2,12 +2,15 @@ package grafana
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/goccy/go-yaml"
 )
+
+var measuresChange = regexp.MustCompile(`\b(?:delta|idelta|increase|rate|irate|deriv|predict_linear|changes|resets)\(|\boffset\b`)
 
 type alertRule struct {
 	Alert       string            `yaml:"alert"`
@@ -84,6 +87,30 @@ func TestAlertRulesEvaluateOnBackends(t *testing.T) {
 			for _, b := range bs {
 				if _, err := b.instant(t.Context(), r.Expr, at); err != nil {
 					t.Errorf("%s: %v", b.name, err)
+				}
+			}
+		})
+	}
+}
+
+// A rule that measures change must stay silent while nothing changes. The backends hold minutes of constant
+// golden data, so every series starts inside any longer window: the shape a restarted exporter leaves behind,
+// whose new series VictoriaMetrics' delta() counts as growth from zero.
+func TestChangeAlertsStaySilentOnSteadyData(t *testing.T) {
+	bs := liveBackends(t)
+	at := time.Now()
+	for _, r := range loadAlertRules(t) {
+		if !measuresChange.MatchString(withoutStrings(r.Expr)) {
+			continue
+		}
+		t.Run(r.Alert, func(t *testing.T) {
+			for _, b := range bs {
+				got, err := b.instant(t.Context(), r.Expr, at)
+				switch {
+				case err != nil:
+					t.Errorf("%s: %v", b.name, err)
+				case len(got) > 0:
+					t.Errorf("%s: fires on unchanging data: %v", b.name, got)
 				}
 			}
 		})
