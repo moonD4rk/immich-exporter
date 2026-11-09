@@ -11,11 +11,12 @@ import (
 // Grafana releases, which older releases ignore, need no support here.
 type obj = map[string]any
 
-// Colors carry meaning: blue for volume, purple for a second category, text for neutral counts,
-// and green, orange and red only for health.
+// Colors carry meaning: blue for volume, purple for a second category, gold for star ratings, text for neutral
+// counts, and green, orange and red only for health.
 const (
 	blue   = "blue"
 	purple = "purple"
+	gold   = "semi-dark-yellow"
 	green  = "green"
 	orange = "orange"
 	red    = "red"
@@ -219,12 +220,15 @@ func status(title, desc, expr, ok, bad string) *panel {
 		mappings(when(0, bad, red), when(1, ok, green)).thresholds(red, at(1, green))
 }
 
-// kpi is a headline number with its trend and its change over the selected range.
-func kpi(title, desc, expr string) *panel {
+// kpi is a headline number with its change over the selected range and, for a number that grows steadily, a
+// sparkline of the range. A sparkline scales to its own range, so on a count that rarely moves one new album
+// would draw a cliff.
+func kpi(title, desc, expr string, sparkline bool) *panel {
 	p := stat(title, desc, series(expr, "")).color(blue)
-	p.Options["colorMode"] = "none"
-	p.Options["graphMode"] = "area"
 	p.Options["showPercentChange"] = true
+	if sparkline {
+		p.Options["graphMode"] = "area"
+	}
 	return p
 }
 
@@ -239,11 +243,15 @@ func grid(title, desc string, targets ...target) *panel {
 type seriesStyle struct {
 	stacked, bars, noLegend bool
 	signed                  bool // the axis may go below zero
+	smooth                  bool // a curve rather than straight segments, for totals that only grow
 	lineWidth               int
 }
 
 func timeseries(title, desc string, style seriesStyle, targets ...target) *panel {
-	lineWidth, fill, gradient, drawStyle, stacking := 2, 16, "opacity", "line", "none"
+	lineWidth, fill, gradient, drawStyle, stacking, interpolation := 2, 16, "opacity", "line", "none", "linear"
+	if style.smooth {
+		fill, interpolation = 28, "smooth"
+	}
 	if style.lineWidth > 0 {
 		lineWidth = style.lineWidth
 	}
@@ -256,7 +264,7 @@ func timeseries(title, desc string, style seriesStyle, targets ...target) *panel
 		lineWidth, fill, gradient, drawStyle = 0, 80, "none", "bars"
 	}
 	custom := obj{
-		"drawStyle": drawStyle, "lineInterpolation": "linear", "lineWidth": lineWidth, "fillOpacity": fill,
+		"drawStyle": drawStyle, "lineInterpolation": interpolation, "lineWidth": lineWidth, "fillOpacity": fill,
 		"gradientMode": gradient, "showPoints": "never", "pointSize": 4, "spanNulls": true, "insertNulls": false,
 		"barAlignment": 0, "stacking": obj{"mode": stacking, "group": "A"}, "axisPlacement": "auto", "axisLabel": "",
 		"axisBorderShow": false, "axisCenteredZero": false, "scaleDistribution": obj{"type": "linear"},
@@ -298,26 +306,32 @@ func rings(title, desc string, targets ...target) *panel {
 		"reduceOptions": reduceLast(), "orientation": "auto", "showThresholdLabels": false, "showThresholdMarkers": false,
 		"sizing": "auto", "minVizWidth": 60, "minVizHeight": 60,
 		"shape": "circle", "barShape": "rounded", "barWidthFactor": 0.35, "sparkline": false, "endpointMarker": "none",
-		"effects": obj{"gradient": false},
+		"effects": obj{"gradient": true},
 	}
 	return p
 }
 
-// bars is a horizontal bar gauge: one bar per series, all in one color on a common scale.
+// bars is a horizontal bar gauge: one solid bar per series, all in one color on a common scale.
 func bars(title, desc string, targets ...target) *panel {
 	p := newPanel("bargauge", title, desc, targets...)
 	p.set("unit", "short").set("min", 0).set("color", fixed(blue)).set("thresholds", steps(blue))
 	p.Options = obj{
-		"reduceOptions": reduceLast(), "orientation": "horizontal", "displayMode": "basic", "valueMode": "text",
+		"reduceOptions": reduceLast(), "orientation": "horizontal", "displayMode": "gradient", "valueMode": "text",
 		"namePlacement": "left", "showUnfilled": true, "sizing": "manual",
 		"minVizWidth": 8, "minVizHeight": 16, "maxVizHeight": 22,
 	}
 	return p
 }
 
-// alarm turns one bar or cell of a neutral panel to color once it reaches 1.
+// alarm turns one cell of a neutral table to color once it reaches 1.
 func alarm(color string) []obj {
 	return []obj{prop("color", obj{"mode": "thresholds"}), prop("thresholds", steps(text, at(1, color)))}
+}
+
+// flag colors one bar of a bar gauge once it reaches 1. Below that the bar is transparent: a bar gauge draws even a
+// zero as a sliver, which a fixed color would paint as an alarm.
+func flag(color string) []obj {
+	return []obj{prop("color", obj{"mode": "thresholds"}), prop("thresholds", steps("transparent", at(1, color)))}
 }
 
 func table(title, desc string, targets ...target) *panel {
