@@ -1084,7 +1084,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -1149,7 +1149,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -1214,7 +1214,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -1279,7 +1279,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -1344,8 +1344,8 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
-        "graphMode": "area",
+        "colorMode": "value",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "percentChangeColorMode": "same_as_value",
@@ -1409,8 +1409,8 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "none",
-        "graphMode": "area",
+        "colorMode": "value",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "percentChangeColorMode": "same_as_value",
@@ -1698,8 +1698,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "blue",
-            "mode": "fixed"
+            "mode": "continuous-BlPu"
           },
           "custom": {
             "axisBorderShow": false,
@@ -1766,6 +1765,7 @@
       "options": {
         "barRadius": 0.05,
         "barWidth": 0.8,
+        "colorByField": "Assets",
         "fullHighlight": false,
         "groupWidth": 0.7,
         "legend": {
@@ -1858,22 +1858,11 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max(immich_assets_not_in_album)",
-          "instant": true,
-          "legendFormat": "Not in an album",
-          "range": false,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
           "expr": "max(immich_assets_motion)",
           "instant": true,
           "legendFormat": "Motion photos",
           "range": false,
-          "refId": "D"
+          "refId": "C"
         },
         {
           "datasource": {
@@ -1884,7 +1873,7 @@
           "instant": true,
           "legendFormat": "Transcoded videos",
           "range": false,
-          "refId": "E"
+          "refId": "D"
         },
         {
           "datasource": {
@@ -1895,7 +1884,7 @@
           "instant": true,
           "legendFormat": "Hidden",
           "range": false,
-          "refId": "F"
+          "refId": "E"
         },
         {
           "datasource": {
@@ -1906,7 +1895,7 @@
           "instant": true,
           "legendFormat": "Locked",
           "range": false,
-          "refId": "G"
+          "refId": "F"
         },
         {
           "datasource": {
@@ -1917,7 +1906,7 @@
           "instant": true,
           "legendFormat": "In trash",
           "range": false,
-          "refId": "H"
+          "refId": "G"
         },
         {
           "datasource": {
@@ -1928,7 +1917,7 @@
           "instant": true,
           "legendFormat": "Offline",
           "range": false,
-          "refId": "I"
+          "refId": "H"
         }
       ],
       "fieldConfig": {
@@ -1968,7 +1957,7 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "text",
+                      "color": "transparent",
                       "value": null
                     },
                     {
@@ -1983,7 +1972,7 @@
         ]
       },
       "options": {
-        "displayMode": "basic",
+        "displayMode": "gradient",
         "maxVizHeight": 22,
         "minVizHeight": 16,
         "minVizWidth": 8,
@@ -2033,7 +2022,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "blue",
+            "fixedColor": "semi-dark-yellow",
             "mode": "fixed"
           },
           "min": 0,
@@ -2041,7 +2030,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "semi-dark-yellow",
                 "value": null
               }
             ]
@@ -2051,7 +2040,7 @@
         "overrides": []
       },
       "options": {
-        "displayMode": "basic",
+        "displayMode": "gradient",
         "maxVizHeight": 22,
         "minVizHeight": 16,
         "minVizWidth": 8,
@@ -2146,7 +2135,7 @@
         "barShape": "rounded",
         "barWidthFactor": 0.35,
         "effects": {
-          "gradient": false
+          "gradient": true
         },
         "endpointMarker": "none",
         "minVizHeight": 60,
@@ -2208,7 +2197,7 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 16,
+            "fillOpacity": 28,
             "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
@@ -2216,7 +2205,7 @@
               "viz": false
             },
             "insertNulls": false,
-            "lineInterpolation": "linear",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 4,
             "scaleDistribution": {
@@ -4234,7 +4223,7 @@
                   {
                     "id": "color",
                     "value": {
-                      "fixedColor": "text",
+                      "fixedColor": "purple",
                       "mode": "fixed"
                     }
                   }
@@ -4902,7 +4891,7 @@
                       "mode": "absolute",
                       "steps": [
                         {
-                          "color": "text",
+                          "color": "transparent",
                           "value": null
                         },
                         {
@@ -4917,7 +4906,7 @@
             ]
           },
           "options": {
-            "displayMode": "basic",
+            "displayMode": "gradient",
             "maxVizHeight": 22,
             "minVizHeight": 16,
             "minVizWidth": 8,
@@ -4985,7 +4974,7 @@
             "overrides": []
           },
           "options": {
-            "displayMode": "basic",
+            "displayMode": "gradient",
             "maxVizHeight": 22,
             "minVizHeight": 16,
             "minVizWidth": 8,
@@ -8234,7 +8223,7 @@
                       "mode": "absolute",
                       "steps": [
                         {
-                          "color": "text",
+                          "color": "transparent",
                           "value": null
                         },
                         {
@@ -8264,7 +8253,7 @@
                       "mode": "absolute",
                       "steps": [
                         {
-                          "color": "text",
+                          "color": "transparent",
                           "value": null
                         },
                         {
@@ -8294,7 +8283,7 @@
                       "mode": "absolute",
                       "steps": [
                         {
-                          "color": "text",
+                          "color": "transparent",
                           "value": null
                         },
                         {
@@ -8309,7 +8298,7 @@
             ]
           },
           "options": {
-            "displayMode": "basic",
+            "displayMode": "gradient",
             "maxVizHeight": 22,
             "minVizHeight": 16,
             "minVizWidth": 8,
@@ -9436,7 +9425,7 @@
             "overrides": []
           },
           "options": {
-            "displayMode": "basic",
+            "displayMode": "gradient",
             "maxVizHeight": 22,
             "minVizHeight": 16,
             "minVizWidth": 8,
@@ -9520,7 +9509,7 @@
             "barShape": "rounded",
             "barWidthFactor": 0.35,
             "effects": {
-              "gradient": false
+              "gradient": true
             },
             "endpointMarker": "none",
             "minVizHeight": 60,

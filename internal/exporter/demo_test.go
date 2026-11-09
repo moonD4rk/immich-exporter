@@ -18,9 +18,10 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-// The demo library behind the dashboard screenshots (grafana/demo) is made up: a family whose
-// phones back up every evening, who imported a camera card and a road trip during the month,
-// and whose latest backup is still being processed when the screenshots are taken.
+// The demo library behind the dashboard screenshots (grafana/demo) is made up: a family whose phones back up
+// every evening and who shoot most at weekends. During the month they throw a birthday party, import a camera
+// card, clear out duplicates and take a week-long road trip, and their latest backup is still being processed
+// when the screenshots are taken.
 
 const (
 	demoDays       = 30
@@ -102,7 +103,7 @@ var (
 		"GR LENS 18.3mm F2.8":                             0.004,
 	}
 	// Assets taken in each of the twelve years before the current one.
-	demoYears = []float64{380, 640, 910, 1150, 1560, 1970, 1650, 2280, 2830, 3060, 3190, 3260}
+	demoYears = []float64{430, 720, 1030, 1300, 1760, 2230, 1860, 2580, 3200, 3460, 3600, 3680}
 )
 
 var demoPeople = []labeledVal{
@@ -156,10 +157,10 @@ func newDemoQueues() []*demoQueue {
 	return []*demoQueue{
 		{name: "thumbnailGeneration", perAsset: 1, perHour: 1500, workers: 3, failed: 2},
 		{name: "metadataExtraction", perAsset: 1, perHour: 2400, workers: 5},
-		{name: "smartSearch", perAsset: 1, perHour: 320, workers: 2},
-		{name: "faceDetection", perAsset: 1, perHour: 260, workers: 2},
-		{name: "facialRecognition", perAsset: 0.6, perHour: 900, workers: 1},
-		{name: "ocr", perAsset: 1, perHour: 300, workers: 1},
+		{name: "smartSearch", perAsset: 1, perHour: 42, workers: 2},
+		{name: "faceDetection", perAsset: 1, perHour: 34, workers: 2},
+		{name: "facialRecognition", perAsset: 0.6, perHour: 90, workers: 1},
+		{name: "ocr", perAsset: 1, perHour: 38, workers: 1},
 		{name: "duplicateDetection", perAsset: 1, perHour: 1800, workers: 1},
 		{name: "videoConversion", perAsset: 0.07, perHour: 12, workers: 1, failed: 1},
 		{name: "sidecar"},
@@ -174,37 +175,66 @@ func newDemoQueues() []*demoQueue {
 }
 
 type demoTimeline struct {
-	start, now time.Time
-	home, trip []float64 // uploads in each hour since start
-	queues     []*demoQueue
-	last       time.Time
-	lastAdded  float64
-	r          *rand.Rand
+	start, now          time.Time
+	home, trip, removed []float64 // assets uploaded at home, uploaded on the trip, and deleted, in each hour since start
+	queues              []*demoQueue
+	last                time.Time
+	lastAdded           float64
+	r                   *rand.Rand
 }
+
+// Days before now on which the month's events happen; the trip runs from tripStart to tripEnd.
+const (
+	demoBirthday, demoCardImport, demoCleanup = 26, 21, 17
+	demoTripStart, demoTripEnd                = 13, 8
+)
 
 func newDemoTimeline(now time.Time) *demoTimeline {
 	r := rand.New(rand.NewPCG(2026, 10)) //nolint:gosec // a fixed seed keeps the demo reproducible.
 	start := now.Add(-demoDays * 24 * time.Hour).Truncate(time.Hour)
 	n := int(now.Sub(start).Hours()) + 1
 	tl := &demoTimeline{
-		start: start, now: now, home: make([]float64, n), trip: make([]float64, n),
+		start: start, now: now, home: make([]float64, n), trip: make([]float64, n), removed: make([]float64, n),
 		queues: newDemoQueues(), last: start, r: r,
 	}
+	daysAgo := func(i int) int { return int(now.Sub(start.Add(time.Duration(i)*time.Hour)).Hours()) / 24 }
+	mood := map[int]float64{}
 	for i := range n {
-		if h := start.Add(time.Duration(i) * time.Hour).Hour(); h >= 18 && h <= 22 {
-			tl.home[i] = float64(r.IntN(10))
-		} else if r.IntN(5) == 0 {
+		t := start.Add(time.Duration(i) * time.Hour)
+		d, h := daysAgo(i), t.Hour()
+		if _, ok := mood[d]; !ok {
+			mood[d] = 0.45 + 1.3*r.Float64()
+		}
+		away := d <= demoTripStart && d >= demoTripEnd
+		switch weekend := t.Weekday() == time.Saturday || t.Weekday() == time.Sunday; {
+		case away:
+			if h >= 20 && h <= 22 { // the phones back up from the hotel's Wi-Fi
+				tl.trip[i] = float64(55 + r.IntN(60))
+			}
+		case weekend && h >= 10 && h <= 20:
+			tl.home[i] = math.Round(mood[d] * float64(r.IntN(13)))
+		case h >= 18 && h <= 22:
+			tl.home[i] = math.Round(mood[d] * float64(r.IntN(10)))
+		case r.IntN(6) == 0:
 			tl.home[i] = float64(r.IntN(3))
 		}
+		switch {
+		case d == demoBirthday && h >= 15 && h <= 19:
+			tl.home[i] += float64(40 + r.IntN(25))
+		case d == demoCardImport && h == 21:
+			tl.home[i] += 380
+		case d == demoCleanup && h == 20:
+			tl.removed[i] = 160
+		case d == demoTripEnd && h == 23: // the camera's card, the night they get home
+			tl.trip[i] += 450
+		}
 	}
-	tl.home[n-22*24] += 380
-	tl.trip[n-12*24], tl.trip[n-12*24+1] = 610, 590
 	return tl
 }
 
-// uploaded counts uploads from start to t, prorating the hour in progress. A phone backup starting
-// twenty minutes before now keeps the queues busy while the screenshots render.
-func (tl *demoTimeline) uploaded(t time.Time) (home, trip float64) {
+// uploaded counts the assets uploaded and deleted from start to t, prorating the hour in progress. A phone backup
+// starting twenty minutes before now keeps the queues busy while the screenshots render.
+func (tl *demoTimeline) uploaded(t time.Time) (home, trip, removed float64) {
 	hours := t.Sub(tl.start).Hours()
 	for i := range tl.home {
 		f := min(1, hours-float64(i))
@@ -213,11 +243,12 @@ func (tl *demoTimeline) uploaded(t time.Time) (home, trip float64) {
 		}
 		home += tl.home[i] * f
 		trip += tl.trip[i] * f
+		removed += tl.removed[i] * f
 	}
 	if m := t.Sub(tl.now).Minutes() + 20; m > 0 {
 		home += 7 * m
 	}
-	return home, trip
+	return home, trip, removed
 }
 
 func (tl *demoTimeline) scrapeErrors(t time.Time) int64 {
@@ -232,22 +263,25 @@ func (tl *demoTimeline) scrapeErrors(t time.Time) int64 {
 
 // snapshotAt advances the queues to t, so it must be called with increasing times.
 func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
-	home, trip := tl.uploaded(t)
+	home, trip, removed := tl.uploaded(t)
 	added := home + trip
+	busy := min(added-tl.lastAdded, 150) // refreshes slow down while Immich is busy with new uploads
 	for _, q := range tl.queues {
 		q.backlog = max(0, q.backlog+q.perAsset*(added-tl.lastAdded)-q.perHour*t.Sub(tl.last).Hours())
 	}
 	tl.last, tl.lastAdded = t, added
+	home -= removed
 
-	images, videos := math.Round(24610+0.93*added), math.Round(1882+0.07*added)
+	// Trips bring home more videos than everyday life does.
+	images, videos := math.Round(24610+0.93*home+0.86*trip), math.Round(1882+0.07*home+0.14*trip)
 	s := newSnapshot()
 	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, 1
-	s.health.scrapeDurationSeconds = 1.1 + 0.6*tl.r.Float64()
+	s.health.scrapeDurationSeconds = 0.95 + 0.2*tl.r.Float64() + 0.004*busy
 	s.health.lastSuccessUnix = float64(t.Add(-41 * time.Second).Unix())
 	demoCollectors(s, tl.r)
 	demoServer(s, t, images, videos)
 	demoOps(s, t)
-	demoAssets(s, t.Year(), images, videos, home, trip)
+	demoAssets(s, t.Year(), images, videos, home, trip, removed)
 	demoCameras(s, images+videos)
 	demoGeo(s, home, trip)
 	demoPeopleAt(s, home, trip)
@@ -312,7 +346,7 @@ func demoOps(s *snapshot, t time.Time) {
 	o.lastBackupUnix, o.lastBackupBytes = set(float64(last.Unix())), set(48.1e6)
 }
 
-func demoAssets(s *snapshot, year int, images, videos, home, trip float64) {
+func demoAssets(s *snapshot, year int, images, videos, home, trip, removed float64) {
 	total := images + videos
 	m := &s.metadata
 	m.withPeople, m.withCamera = set(math.Round(0.41*total)), set(math.Round(0.87*total))
@@ -338,7 +372,8 @@ func demoAssets(s *snapshot, year int, images, videos, home, trip float64) {
 	}
 	a.byRating["unrated"] = unrated
 	a.favorite = set(math.Round(1284 + 0.03*(home+trip)))
-	a.archived, a.hidden, a.offline, a.trashed, a.locked = set(862), set(37), set(0), set(54), set(18)
+	a.archived, a.hidden, a.offline, a.locked = set(862), set(37), set(0), set(18)
+	a.trashed = set(math.Round(54 + removed))
 	a.motion = set(math.Round(2214 + 0.11*home))
 	a.notInAlbum = set(math.Round(9960 + 0.8*home + 0.1*trip))
 	a.encoded = set(videos - 2)

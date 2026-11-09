@@ -41,7 +41,7 @@ jq '.panels |= (reduce .[] as $p ({off: 0, out: []}; . as $s
   grafana/dashboard.json >"$tmp/expanded.json"
 
 # Each image runs from one row title to the next (empty = the dashboard's edge); a grid row renders 38px
-# tall. Only the first keeps the dashboard controls, and every render is cut above Grafana's badge.
+# tall. Renders leave out the dashboard controls and are cut above Grafana's badge.
 # Pages render 1600px wide, where every status tile's title fits, at twice the pixel density for
 # high-density screens, and are saved as lossless WebP, a third the size of the same PNG.
 width=1600 scale=2
@@ -56,7 +56,7 @@ bands=(
   "server|Server & exporter|More"
   "more|More|"
 )
-controls=
+controls='&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks'
 for band in "${bands[@]}"; do
   IFS='|' read -r name from to <<<"$band"
   read -r first end < <(jq -r --arg from "$from" --arg to "$to" '
@@ -72,6 +72,5 @@ for band in "${bands[@]}"; do
       -bordercolor "$bg" -border $((16 * scale)) -strip -quality 100 -define webp:lossless=true -define webp:method=6 "$out"
     echo "$out"
   done
-  controls='&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks'
 done
 if [[ ${KEEP:-} == 1 ]]; then echo "Grafana: http://127.0.0.1:13001/d/immich-library (admin/admin)"; fi

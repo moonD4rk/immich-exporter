@@ -168,13 +168,13 @@ func library(l *layout) {
 	l.section("Library", false)
 	l.line(4,
 		span(4, kpi("Assets", "Photos and videos in the library. The percentage is the change over the selected time range.",
-			"sum(max by (type) (immich_assets))")),
-		span(4, kpi("Photos", "Image assets.", `max(immich_assets{type="IMAGE"})`)),
-		span(4, kpi("Videos", "Video assets.", `max(immich_assets{type="VIDEO"})`).color(purple)),
+			"sum(max by (type) (immich_assets))", true)),
+		span(4, kpi("Photos", "Image assets.", `max(immich_assets{type="IMAGE"})`, true)),
+		span(4, kpi("Videos", "Video assets.", `max(immich_assets{type="VIDEO"})`, true).color(purple)),
 		span(4, kpi("Library size", "Storage used by the library's originals and generated files.",
-			"max(immich_server_usage_bytes)").unit("bytes")),
-		span(4, kpi("People", "Recognized people, named or not.", "max(immich_people)")),
-		span(4, kpi("Albums", "Albums, shared or private.", "sum(max by (shared) (immich_albums))")),
+			"max(immich_server_usage_bytes)", true).unit("bytes")),
+		span(4, kpi("People", "Recognized people, named or not.", "max(immich_people)", false)),
+		span(4, kpi("Albums", "Albums, shared or private.", "sum(max by (shared) (immich_albums))", false)),
 	)
 	l.line(9,
 		span(16, assetTypes(timeseries("New assets",
@@ -189,24 +189,25 @@ func library(l *layout) {
 			"counts every user's locked folder. Offline assets are missing on disk and turn red.",
 			latest("max(immich_assets_favorite)", "Favorites"),
 			latest("max(immich_assets_archived)", "Archived"),
-			latest("max(immich_assets_not_in_album)", "Not in an album"),
 			latest("max(immich_assets_motion)", "Motion photos"),
 			latest("max(immich_assets_encoded)", "Transcoded videos"),
 			latest("max(immich_assets_hidden)", "Hidden"),
 			latest("max(immich_assets_locked)", "Locked"),
 			latest("max(immich_assets_trashed)", "In trash"),
 			latest("max(immich_assets_offline)", "Offline")).
-			override("Offline", alarm(red)...)),
+			override("Offline", flag(red)...)),
 	)
 	l.line(7,
 		span(8, bars("Star ratings", "Rated assets by star rating. Unrated assets are left out so the scale stays readable.",
-			latest(`max by (rating) (immich_assets_by_rating{rating!="unrated"})`, "{{rating}} ★"))),
+			latest(`max by (rating) (immich_assets_by_rating{rating!="unrated"})`, "{{rating}} ★")).
+			color(gold).thresholds(gold)),
 		span(8, rings("Organized", "Share of assets with a location, share of assets in at least one album, "+
 			"and share of recognized people with a name.",
 			latest("max(immich_assets_geotagged) / clamp_min(sum(max by (type) (immich_assets)), 1)", "Geotagged"),
 			latest("1 - max(immich_assets_not_in_album) / clamp_min(sum(max by (type) (immich_assets)), 1)", "In an album"),
 			latest("max(immich_people_named) / clamp_min(max(immich_people), 1)", "People named"))),
-		span(8, timeseries("Library size", "Storage used by the library over time.", seriesStyle{noLegend: true, signed: true},
+		span(8, timeseries("Library size", "Storage used by the library over time.",
+			seriesStyle{noLegend: true, signed: true, smooth: true},
 			series("max(immich_server_usage_bytes)", "Library")).unit("bytes").color(blue)),
 	)
 }
@@ -226,13 +227,14 @@ func storageByType() *panel {
 func assetsByYear() *panel {
 	p := newPanel("barchart", "Assets by year", "Assets by the year they were taken (EXIF capture date).",
 		frame("max by (year) (immich_assets_by_year)"))
-	p.set("color", fixed(blue)).set("thresholds", steps(blue)).set("custom", obj{
+	// Shaded by count on the map's blue-to-purple scale, so the busiest years stand out.
+	p.set("color", obj{"mode": "continuous-BlPu"}).set("thresholds", steps(blue)).set("custom", obj{
 		"lineWidth": 0, "fillOpacity": 80, "gradientMode": "none", "axisPlacement": "auto", "axisLabel": "",
 		"axisBorderShow": false, "axisCenteredZero": false, "axisSoftMin": 0, "scaleDistribution": obj{"type": "linear"},
 		"thresholdsStyle": obj{"mode": "off"}, "hideFrom": hideNothing(),
 	})
 	p.Options = obj{
-		"orientation": "vertical", "xField": "year", "showValue": "always", "stacking": "none",
+		"orientation": "vertical", "xField": "year", "colorByField": "Assets", "showValue": "always", "stacking": "none",
 		"groupWidth": 0.7, "barWidth": 0.8, "barRadius": 0.05, "fullHighlight": false,
 		"xTickLabelRotation": 0, "xTickLabelSpacing": 0, "text": obj{"valueSize": 11},
 		"legend":  obj{"showLegend": false, "displayMode": "list", "placement": "bottom", "calcs": []string{}},
@@ -342,7 +344,7 @@ func people(l *layout) {
 			"topk(15, max by (person) (immich_person_assets))", col("person", "Person"))),
 		span(12, timeseries("Naming progress", "Named versus unnamed people over time.", seriesStyle{stacked: true},
 			series("max(immich_people_named)", "Named"), series("max(immich_people_unnamed)", "Unnamed")).
-			override("Named", prop("color", fixed(blue))).override("Unnamed", prop("color", fixed(text)))),
+			override("Named", prop("color", fixed(blue))).override("Unnamed", prop("color", fixed(purple)))),
 	)
 }
 
@@ -366,7 +368,7 @@ func albums(l *layout) {
 			latest("max(immich_shared_links_password_protected)", "Password protected"),
 			latest("max(immich_shared_links_never_expire)", "Never expire"),
 			latest("max(immich_shared_links_expired)", "Expired")).
-			override("Never expire", alarm(orange)...)),
+			override("Never expire", flag(orange)...)),
 		span(4, bars("Partner sharing", "Partner libraries shared with you (incoming) and by you (outgoing).",
 			latest("max by (direction) (immich_partners)", "{{direction}}"))),
 	)
@@ -605,9 +607,9 @@ func integrity() *panel {
 		latest(`max(immich_integrity_issues{type="missing_file"})`, "Missing files"),
 		latest(`max(immich_integrity_issues{type="checksum_mismatch"})`, "Checksum mismatches"),
 		latest(`max(immich_integrity_issues{type="untracked_file"})`, "Untracked files")).
-		override("Missing files", alarm(red)...).
-		override("Checksum mismatches", alarm(red)...).
-		override("Untracked files", alarm(orange)...)
+		override("Missing files", flag(red)...).
+		override("Checksum mismatches", flag(red)...).
+		override("Untracked files", flag(orange)...)
 }
 
 func backups() *panel {
