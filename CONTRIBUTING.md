@@ -41,7 +41,7 @@ go test -race ./...
 
 ## Dashboard changes
 
-`grafana/dashboard.json` is generated: the dashboard is defined in [`grafana/dashboard.go`](grafana/dashboard.go) from the panel kinds in [`grafana/design.go`](grafana/design.go), which also hold its visual rules (blue for volume, purple for videos, neutral text for counts, green, orange and red only for health). Edit the Go, then run `go generate ./grafana`; `go test ./grafana` fails while the two disagree, so a hand edit to the JSON or an export from Grafana doesn't survive. Grafana's editor is still the quickest place to try out a panel, then port what works to the Go.
+`grafana/dashboard.json` is generated: the dashboard is defined in [`grafana/dashboard.go`](grafana/dashboard.go) from the panel kinds in [`grafana/design.go`](grafana/design.go), which also hold its visual rules (blue for volume, purple for videos, gold for star ratings, neutral text for counts, green, orange and red only for health). Edit the Go, then run `go generate ./grafana`; `go test ./grafana` fails while the two disagree, so a hand edit to the JSON or an export from Grafana doesn't survive. Grafana's editor is still the quickest place to try out a panel, then port what works to the Go.
 
 Prometheus and VictoriaMetrics evaluate some queries differently (VictoriaMetrics matches a label-less `sum(...)` like a scalar and drops `NaN` results, for example), so the dashboard is checked against both:
 
@@ -60,6 +60,8 @@ A query on a metric the poll mock doesn't produce yet needs it in `internal/expo
 The `datasource` variable's current value is `${DS_PROMETHEUS}` with text `Prometheus`, so an import uses the datasource picked in its dialog and file provisioning falls back to the one named Prometheus; `go test ./grafana` checks that the input stays referenced.
 
 After a visible dashboard change, refresh the README screenshots with `grafana/demo/screenshots.sh` (needs Docker, Go, jq and ImageMagick). It renders the dashboard in the dark and light themes over a synthetic library from `internal/exporter/demo_test.go`, so no real data is involved, and `KEEP=1` leaves Grafana running on http://127.0.0.1:13001 to look around. A new metric needs a demo value too, or `TestDemoCoversEveryMetric` fails.
+
+The dashboard is also published as [grafana.com dashboard 26030](https://grafana.com/grafana/dashboards/26030). After a release that changes `grafana/dashboard.json`, the maintainer uploads it there as a new revision, with the refreshed screenshots.
 
 ## Commit messages
 
