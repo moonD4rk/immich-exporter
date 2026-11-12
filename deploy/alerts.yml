@@ -37,6 +37,21 @@ groups:
             The last successful poll on {{ $labels.instance }} was {{ $value | humanizeDuration }} ago.
             Raise the threshold if you poll less often than every few minutes.
 
+      - alert: ImmichExporterCollectorFailing
+        # Only a collector that worked within the past week: one the API key may not use reports 0 from the start.
+        expr: >-
+          max by (collector) (immich_exporter_collector_success) == 0
+          and max by (collector) (max_over_time(immich_exporter_collector_success[7d])) == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: The {{ $labels.collector }} collector of immich-exporter stopped working
+          description: >-
+            It got its data within the past week and has failed for an hour, so its metrics are missing while
+            immich_exporter_up stays 1. The exporter log names the error; an Immich upgrade may have changed the endpoint.
+            The alert ends by itself after a week without a success.
+
       - alert: ImmichDown
         expr: immich_up == 0
         for: 5m

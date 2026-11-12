@@ -125,7 +125,7 @@ The series cover the server and the exporter's own health, integrity checks and 
 
 ## Alerts
 
-[`deploy/alerts.yml`](deploy/alerts.yml) has alert rules for, among others, Immich or the exporter going down, a failing or stalled job queue, a filling library volume, integrity-check findings and a stale database backup. Load it with `rule_files` in Prometheus, as a `PrometheusRule` with the Prometheus Operator, or with `vmalert -rule`.
+[`deploy/alerts.yml`](deploy/alerts.yml) has alert rules for, among others, Immich or the exporter going down, a collector that stops working, a failing or stalled job queue, a filling library volume, integrity-check findings and a stale database backup. Load it with `rule_files` in Prometheus, as a `PrometheusRule` with the Prometheus Operator, or with `vmalert -rule`.
 
 ## Contributing
 
