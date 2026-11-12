@@ -205,6 +205,13 @@ func immichMux(isAdmin bool) *http.ServeMux {
 	mux.HandleFunc("GET /server/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"trashDays": 30, "userDeleteDelay": 7, "minFaces": 3, "isInitialized": true, "isOnboarded": true})
 	})
+	// The exporter falls back to /config and /jobs once a server drops, or a key may not read, the routes above and /queues.
+	mux.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"trash": map[string]any{"enabled": true, "days": 30}})
+	})
+	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"smartSearch": map[string]any{"jobCounts": map[string]any{"waiting": 12}}})
+	})
 	mux.HandleFunc("GET /server/storage", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"diskSizeRaw": 1000, "diskUseRaw": 400, "diskAvailableRaw": 600})
 	})
@@ -367,7 +374,7 @@ func immichMux(isAdmin bool) *http.ServeMux {
 	mux.HandleFunc("GET /libraries", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []map[string]any{{"id": "l1", "name": "External", "assetCount": 0}})
 	})
-	mux.HandleFunc("GET /libraries/l1/statistics", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /libraries/{id}/statistics", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"photos": 4998, "videos": 2, "usage": 1000, "total": 5000})
 	})
 	mux.HandleFunc("GET /api-keys", func(w http.ResponseWriter, _ *http.Request) {
