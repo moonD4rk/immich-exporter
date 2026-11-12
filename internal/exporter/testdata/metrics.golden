@@ -114,6 +114,9 @@ immich_assets_storage_bytes{type="VIDEO"} 3000
 # HELP immich_assets_trashed Number of trashed assets.
 # TYPE immich_assets_trashed gauge
 immich_assets_trashed 3
+# HELP immich_assets_visible Assets in the API key owner's timeline and archive, which leaves out the trash and hidden and locked assets. The counts that come from Immich's search are counted among these.
+# TYPE immich_assets_visible gauge
+immich_assets_visible 1050
 # HELP immich_assets_with_camera Visible assets (timeline and archive) whose EXIF names a camera make (Immich 3.2+).
 # TYPE immich_assets_with_camera gauge
 immich_assets_with_camera 900

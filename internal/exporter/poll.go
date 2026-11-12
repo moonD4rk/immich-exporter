@@ -43,6 +43,9 @@ type poller struct {
 	// unavailable holds the collectors last refused for permission or missing
 	// on the server, so that state is logged once rather than every poll.
 	unavailable map[string]bool
+
+	// filter is whether the server polled reads StatisticsSearchDto.filter; an older one would count every asset.
+	filter bool
 }
 
 // collectFunc fills its part of a snapshot from the Immich API.
@@ -141,6 +144,7 @@ func (p *poller) poll(parent context.Context) {
 		return
 	}
 	r.hard("server/about", p.collectAbout)
+	p.filter = searchFilter(s.server.about.version)
 	r.soft("server/version-check", p.collectVersionCheck)
 	r.soft("server/version-history", p.collectVersionHistory)
 	r.soft("server/features", p.collectFeatures)
@@ -161,7 +165,7 @@ func (p *poller) poll(parent context.Context) {
 	})
 
 	if p.bd == nil || time.Since(p.lastBreakdown) >= p.cfg.BreakdownInterval {
-		p.bd = p.collectBreakdowns(ctx, people, s.server.about.version)
+		p.bd = p.collectBreakdowns(ctx, people)
 		p.lastBreakdown = time.Now()
 	}
 	applyBreakdown(s, p.bd)
@@ -207,8 +211,8 @@ func (p *poller) finish(s *snapshot, start time.Time, hardErrs int) {
 // sections applyBreakdown carries into every fast snapshot until the next
 // refresh. A failed collector leaves its section empty (consistent with the
 // "no stale values on failure" policy). people is the list collectPeople
-// fetched this poll (nil when that failed); version gates SearchFilter.
-func (p *poller) collectBreakdowns(ctx context.Context, people []person, version string) *snapshot {
+// fetched this poll (nil when that failed).
+func (p *poller) collectBreakdowns(ctx context.Context, people []person) *snapshot {
 	bd := newSnapshot()
 	r := &pollRun{p: p, ctx: ctx, s: bd}
 	if p.cfg.CollectCamera {
@@ -226,7 +230,7 @@ func (p *poller) collectBreakdowns(ctx context.Context, people []person, version
 		r.soft("duplicates", p.collectDuplicates)
 		r.soft("stacks", p.collectStacks)
 	}
-	if searchFilter(version) {
+	if p.filter {
 		r.soft("assets/metadata", p.collectMetadata)
 	}
 	return bd

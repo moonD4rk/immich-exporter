@@ -62,7 +62,7 @@ func (p *poller) fanout(ctx context.Context, values []string, field string, n in
 		v float64
 	}
 	counts := parallel(values, p.cfg.FanoutConcurrency, func(v string) (kv, bool) {
-		c, err := p.c.StatTotal(ctx, map[string]any{field: v})
+		c, err := p.count(ctx, where(field, v))
 		if err != nil {
 			slog.Warn("fanout call failed", "field", field, "value", v, "err", err)
 			return kv{}, false

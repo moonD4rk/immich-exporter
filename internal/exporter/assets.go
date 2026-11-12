@@ -22,6 +22,7 @@ type assetsSnap struct {
 	serverUsageBytes opt
 	byYear           map[string]float64
 	byRating         map[string]float64 // "1".."5","unrated"
+	visible          opt                // the base of the owner-scoped counts below
 	favorite, archived, hidden, offline,
 	motion, notInAlbum, encoded, trashed opt
 	locked opt // instance-wide, unlike the owner-scoped states above
@@ -34,6 +35,7 @@ var (
 	dServerUsage  = desc("server_usage_bytes", "Total bytes used by all original assets server-wide (admin).")
 	dAssetsByYear = desc("assets_by_year", "Assets taken per calendar year.", "year")
 	dAssetsByRate = desc("assets_by_rating", "Assets by star rating (1-5, or 'unrated').", "rating")
+	dVisible      = desc("assets_visible", "Assets in the API key owner's timeline and archive, which leaves out the trash and hidden and locked assets. The counts that come from Immich's search are counted among these.")
 	dFavorite     = desc("assets_favorite", "Number of favourited assets.")
 	dArchived     = desc("assets_archived", "Number of archived assets.")
 	dHidden       = desc("assets_hidden", "Number of hidden assets, including the video halves of live photos.")
@@ -78,7 +80,7 @@ func (p *poller) collectAssets(ctx context.Context, s *snapshot) error {
 	}
 	// Owner-scoped fallback (non-admin key, or admin key lacking server.statistics).
 	for _, t := range []string{"IMAGE", "VIDEO"} {
-		n, err := p.c.StatTotal(ctx, map[string]any{"type": t})
+		n, err := p.count(ctx, where("type", t))
 		if err != nil {
 			return err
 		}
@@ -118,24 +120,31 @@ func (p *poller) collectServerStats(ctx context.Context, s *snapshot) (bool, err
 
 func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
 	a := &s.assets
-	type q struct {
-		v      *opt
-		filter map[string]any
-	}
-	checks := []q{
-		{&a.favorite, map[string]any{"isFavorite": true}},
-		{&a.archived, map[string]any{"visibility": "archive"}},
-		{&a.hidden, map[string]any{"visibility": "hidden"}},
-		{&a.offline, map[string]any{"isOffline": true}},
-		{&a.motion, map[string]any{"isMotion": true}},
-		{&a.notInAlbum, map[string]any{"isNotInAlbum": true}},
-		{&a.encoded, map[string]any{"isEncoded": true}},
+	checks := []struct {
+		v *opt
+		q query
+	}{
+		{&a.visible, query{flat: map[string]any{}, filter: visible(nil)}},
+		{&a.favorite, where("isFavorite", true)},
+		{&a.archived, where("visibility", "archive")},
+		{&a.hidden, where("visibility", "hidden")},
+		// Immich moves an offline asset to the trash, so this one count keeps the trash.
+		{&a.offline, query{
+			flat:   map[string]any{"isOffline": true},
+			filter: map[string]any{"isOffline": eq(true), "visibility": browsable},
+		}},
+		{&a.motion, where("isMotion", true)},
+		{&a.notInAlbum, query{
+			flat:   map[string]any{"isNotInAlbum": true},
+			filter: visible(map[string]any{"hasAlbums": eq(false)}),
+		}},
+		{&a.encoded, where("isEncoded", true)},
 	}
 	// A filter the API key may not query must not drop the other states, but
 	// refusing all of them is a failure, not an empty success.
 	var refused error
 	for _, c := range checks {
-		n, err := p.c.StatTotal(ctx, c.filter)
+		n, err := p.count(ctx, c.q)
 		if err != nil {
 			if isSoftStatus(err) {
 				refused = err
@@ -144,6 +153,14 @@ func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
 			return err
 		}
 		*c.v = set(n)
+	}
+	if !p.filter {
+		// The flat total counts hidden assets too, so it is only the visible total once they are taken off.
+		if a.hidden.ok {
+			a.visible.v -= a.hidden.v
+		} else {
+			a.visible = opt{}
+		}
 	}
 	// Trashed has no isTrashed boolean in StatisticsSearchDto; use /assets/statistics.
 	var ts struct {
@@ -157,7 +174,7 @@ func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
 	default:
 		refused = err
 	}
-	for _, v := range []opt{a.favorite, a.archived, a.hidden, a.offline, a.motion, a.notInAlbum, a.encoded, a.trashed} {
+	for _, v := range []opt{a.visible, a.favorite, a.archived, a.hidden, a.offline, a.motion, a.notInAlbum, a.encoded, a.trashed} {
 		if v.ok {
 			return nil
 		}
@@ -167,13 +184,13 @@ func (p *poller) collectAssetStates(ctx context.Context, s *snapshot) error {
 
 func (p *poller) collectRatings(ctx context.Context, s *snapshot) error {
 	for r := 1; r <= 5; r++ {
-		n, err := p.c.StatTotal(ctx, map[string]any{"rating": r})
+		n, err := p.count(ctx, where("rating", r))
 		if err != nil {
 			return err
 		}
 		s.assets.byRating[strconv.Itoa(r)] = n
 	}
-	n, err := p.c.StatTotal(ctx, map[string]any{"rating": nil})
+	n, err := p.count(ctx, where("rating", nil))
 	if err != nil {
 		return err
 	}
@@ -205,15 +222,32 @@ func searchFilter(version string) bool {
 	return ok && !semverGreater([3]int{3, 2, 0}, v)
 }
 
-// visible wraps a SearchFilter into a StatisticsSearchDto body that counts what
-// users browse, the timeline and the archive. That leaves out the hidden video
-// halves of live photos, which search otherwise counts as assets of their own
-// (a library of 64k assets searched as 75k), and the PIN-locked folder, which
-// an API key may not search at all.
+// query is one asset count in both search dialects: Immich 4 drops the flat fields, and before 3.2 ignores the filter.
+type query struct {
+	flat   map[string]any
+	filter map[string]any
+}
+
+func eq(v any) map[string]any { return map[string]any{"eq": v} }
+
+var browsable = map[string]any{"in": []string{"timeline", "archive"}}
+
+// visible leaves out what a search counts but nobody browses: the trash and the hidden video half of each live photo.
 func visible(filter map[string]any) map[string]any {
-	f := maps.Clone(filter)
-	f["visibility"] = map[string]any{"in": []string{"timeline", "archive"}}
-	return map[string]any{"filter": f}
+	f := map[string]any{"visibility": browsable, "trashedAt": eq(nil)}
+	maps.Copy(f, filter)
+	return f
+}
+
+func where(field string, v any) query {
+	return query{flat: map[string]any{field: v}, filter: visible(map[string]any{field: eq(v)})}
+}
+
+func (p *poller) count(ctx context.Context, q query) (float64, error) {
+	if p.filter {
+		return p.c.StatTotal(ctx, map[string]any{"filter": q.filter})
+	}
+	return p.c.StatTotal(ctx, q.flat)
 }
 
 // sizeBuckets bound the file-size buckets of immich_assets_by_file_size.
@@ -234,7 +268,9 @@ var sizeBuckets = []struct {
 // than in the top bucket.
 func (p *poller) collectMetadata(ctx context.Context, s *snapshot) error {
 	m := &s.metadata
-	count := func(filter map[string]any) (float64, error) { return p.c.StatTotal(ctx, visible(filter)) }
+	count := func(filter map[string]any) (float64, error) {
+		return p.c.StatTotal(ctx, map[string]any{"filter": visible(filter)})
+	}
 	n, err := count(map[string]any{"hasPeople": map[string]any{"eq": true}})
 	if err != nil {
 		return err
@@ -245,7 +281,7 @@ func (p *poller) collectMetadata(ctx context.Context, s *snapshot) error {
 	}
 	m.withCamera = set(n)
 
-	total, err := count(map[string]any{})
+	total, err := count(nil)
 	if err != nil {
 		return err
 	}
@@ -290,6 +326,7 @@ func emitAssets(ch chan<- prometheus.Metric, s *snapshot) {
 	for r, v := range a.byRating {
 		emit(ch, dAssetsByRate, v, r)
 	}
+	emitOpt(ch, dVisible, a.visible)
 	emitOpt(ch, dFavorite, a.favorite)
 	emitOpt(ch, dArchived, a.archived)
 	emitOpt(ch, dHidden, a.hidden)

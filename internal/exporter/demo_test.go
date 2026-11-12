@@ -371,6 +371,7 @@ func demoAssets(s *snapshot, year int, images, videos, home, trip, removed float
 		unrated -= n
 	}
 	a.byRating["unrated"] = unrated
+	a.visible = set(images + videos)
 	a.favorite = set(math.Round(1284 + 0.03*(home+trip)))
 	a.archived, a.hidden, a.offline, a.locked = set(862), set(37), set(0), set(18)
 	a.trashed = set(math.Round(54 + removed))

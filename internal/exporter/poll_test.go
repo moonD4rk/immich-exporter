@@ -22,9 +22,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 // searchStatsTotal returns a deterministic count for a StatisticsSearchDto body
-// so per-filter breakdowns can be asserted.
+// in either dialect, so per-filter breakdowns can be asserted.
 func searchStatsTotal(m map[string]any) float64 {
+	if f, ok := m["filter"].(map[string]any); ok {
+		return filterTotal(f)
+	}
 	switch {
+	case len(m) == 0:
+		return 1051 // the 1050 visible assets and the hidden one
 	case m["isFavorite"] == true:
 		return 12
 	case m["visibility"] == "archive":
@@ -39,6 +44,13 @@ func searchStatsTotal(m map[string]any) float64 {
 		return 400
 	case m["isEncoded"] == true:
 		return 40
+	}
+	return fieldTotal(m)
+}
+
+// fieldTotal counts by the fields both dialects name alike, given as field -> value.
+func fieldTotal(m map[string]any) float64 {
+	switch {
 	case m["type"] == "IMAGE":
 		return 1000
 	case m["type"] == "VIDEO":
@@ -59,38 +71,81 @@ func searchStatsTotal(m map[string]any) float64 {
 		f, _ := v.(float64)
 		return f
 	}
-	if f, ok := m["filter"].(map[string]any); ok {
-		return filterTotal(f)
-	}
 	return 0
 }
 
-// filterTotal answers StatisticsSearchDto.filter bodies scoped to visible
-// assets: 1050 of them, 6 without a recorded file size. An unscoped filter
-// gets a total no assertion expects, as a live server would add the hidden
-// video halves of live photos.
+// filterTotal answers StatisticsSearchDto.filter bodies the way Immich 3.2+ does: only what the filter excludes is
+// left out, so a count of visible assets must name the visibilities and exclude the trash itself. Anything else gets
+// -1, a total no assertion expects.
 func filterTotal(f map[string]any) float64 {
-	v, _ := f["visibility"].(map[string]any)
-	if in, _ := v["in"].([]any); !slices.Equal(in, []any{"timeline", "archive"}) {
+	f = maps.Clone(f)
+	vis, _ := f["visibility"].(map[string]any)
+	trash, _ := f["trashedAt"].(map[string]any)
+	untrashed := len(trash) == 1 && trash["eq"] == nil && f["trashedAt"] != nil
+	delete(f, "visibility")
+	delete(f, "trashedAt")
+	if in, _ := vis["in"].([]any); !slices.Equal(in, []any{"timeline", "archive"}) {
+		switch {
+		case !untrashed || len(f) != 0:
+			return -1
+		case vis["eq"] == "archive":
+			return 5
+		case vis["eq"] == "hidden":
+			return 1
+		}
 		return -1
 	}
-	f = maps.Clone(f)
-	delete(f, "visibility")
+	if c, ok := f["isOffline"].(map[string]any); ok && c["eq"] == true && trash == nil {
+		return 2 // offline assets sit in the trash
+	}
+	if !untrashed {
+		return -1
+	}
+	return visibleTotal(f)
+}
+
+// visibleTotal counts among the 1050 visible assets, 6 of them without a recorded file size.
+func visibleTotal(f map[string]any) float64 {
 	if len(f) == 0 {
 		return 1050
 	}
-	if f["hasPeople"] != nil {
+	is := func(field string, v any) bool {
+		c, ok := f[field].(map[string]any)
+		return ok && c["eq"] == v
+	}
+	switch {
+	case is("isFavorite", true):
+		return 12
+	case is("isMotion", true):
+		return 30
+	case is("hasAlbums", false):
+		return 400
+	case is("isEncoded", true):
+		return 40
+	case is("hasPeople", true):
 		return 600
 	}
-	if c, ok := f["make"].(map[string]any); ok && c["ne"] == nil {
-		return 900
+	if c, ok := f["make"].(map[string]any); ok && len(c) == 1 {
+		if _, ne := c["ne"]; ne && c["ne"] == nil {
+			return 900
+		}
 	}
-	size, _ := f["fileSizeInBytes"].(map[string]any)
-	if gte, ok := size["gte"].(float64); ok && gte == 1<<30 {
-		return 4
+	if size, ok := f["fileSizeInBytes"].(map[string]any); ok {
+		if gte, ok := size["gte"].(float64); ok && gte == 1<<30 {
+			return 4
+		}
+		below, _ := size["lt"].(float64)
+		return map[float64]float64{1 << 20: 100, 5 << 20: 700, 20 << 20: 950, 100 << 20: 1000, 1 << 30: 1040}[below]
 	}
-	below, _ := size["lt"].(float64)
-	return map[float64]float64{1 << 20: 100, 5 << 20: 700, 20 << 20: 950, 100 << 20: 1000, 1 << 30: 1040}[below]
+	flat := map[string]any{}
+	for field, c := range f {
+		c, ok := c.(map[string]any)
+		if _, isEq := c["eq"]; !ok || !isEq || len(c) != 1 {
+			return -1
+		}
+		flat[field] = c["eq"]
+	}
+	return fieldTotal(flat)
 }
 
 // mockReleaseCheck is when the mock server last checked for releases; the
@@ -363,8 +418,10 @@ func TestPollAdmin(t *testing.T) {
 	if len(s.users.perUser) != 2 || !s.users.perUser[0].quotaUnlimited || s.users.perUser[1].quotaBytes != 1000 {
 		t.Errorf("perUser = %+v", s.users.perUser)
 	}
+	eq("visible", s.assets.visible.v, 1050)
 	eq("favorite", s.assets.favorite.v, 12)
 	eq("archived", s.assets.archived.v, 5)
+	eq("hidden", s.assets.hidden.v, 1)
 	eq("offline", s.assets.offline.v, 2)
 	eq("trashed", s.assets.trashed.v, 3)
 	eq("locked", s.assets.locked.v, 3)
@@ -701,8 +758,48 @@ func TestSearchFilterNeedsImmich32(t *testing.T) {
 	if n := filtered.Load(); n != 0 {
 		t.Errorf("%d filter queries sent to a v3.1 server", n)
 	}
-	if s := snap.Load(); s.metadata.withPeople.ok {
+	s := snap.Load()
+	if s.metadata.withPeople.ok {
 		t.Error("metadata counts must stay absent before Immich 3.2")
+	}
+	a := s.assets
+	if a.visible.v != 1050 || a.favorite.v != 12 || a.notInAlbum.v != 400 || a.byRating["unrated"] != 990 || s.cameras.byMake["Apple"] != 800 {
+		t.Errorf("flat-field counts = visible %v, favorite %v, notInAlbum %v, unrated %v, Apple %v",
+			a.visible.v, a.favorite.v, a.notInAlbum.v, a.byRating["unrated"], s.cameras.byMake["Apple"])
+	}
+}
+
+// From Immich 3.2 every count goes through StatisticsSearchDto.filter: the flat fields count the hidden video half
+// of each live photo as an asset, and Immich 4 drops them.
+func TestCountsUseSearchFilterFromImmich32(t *testing.T) {
+	mux := immichMux(true)
+	var flat atomic.Int32
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search/statistics" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.UnmarshalRead(r.Body, &body)
+		if _, ok := body["filter"]; !ok {
+			flat.Add(1)
+		}
+		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
+	})
+	p, snap := testPoller(serve(t, h))
+	p.poll(context.Background())
+	if n := flat.Load(); n != 0 {
+		t.Errorf("%d flat-field queries sent to a v3.3 server", n)
+	}
+	s := snap.Load()
+	for name, v := range map[string]float64{
+		"visible": s.assets.visible.v, "favorite": s.assets.favorite.v, "encoded": s.assets.encoded.v,
+		"rating 3": s.assets.byRating["3"], "unrated": s.assets.byRating["unrated"],
+		"Apple": s.cameras.byMake["Apple"], "24mm": s.cameras.byLens["24mm"],
+	} {
+		if v < 0 {
+			t.Errorf("%s was counted beyond the visible assets", name)
+		}
 	}
 }
 
@@ -820,6 +917,39 @@ func TestCollectAssetStates(t *testing.T) {
 		}
 		if !s.assets.motion.ok || s.assets.motion.v != 30 {
 			t.Errorf("motion = %v (present=%v)", s.assets.motion.v, s.assets.motion.ok)
+		}
+	})
+
+	t.Run("flat total loses the hidden assets", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, ""))
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if s.assets.visible.v != 1050 {
+			t.Errorf("visible = %v, want 1050", s.assets.visible.v)
+		}
+		p, _ = testPoller(assetStatesSrv(t, "hidden"))
+		s = newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if s.assets.visible.ok {
+			t.Errorf("visible = %v without the hidden count, want absent", s.assets.visible.v)
+		}
+	})
+
+	t.Run("search filter", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, ""))
+		p.filter = true
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		a := s.assets
+		got := []float64{a.visible.v, a.favorite.v, a.archived.v, a.hidden.v, a.offline.v, a.motion.v, a.notInAlbum.v, a.encoded.v}
+		if want := []float64{1050, 12, 5, 1, 2, 30, 400, 40}; !slices.Equal(got, want) {
+			t.Errorf("states = %v, want %v", got, want)
 		}
 	})
 
