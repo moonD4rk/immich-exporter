@@ -105,7 +105,8 @@ func main() {
 		*flags.fanoutConcurrency = 1
 	}
 
-	c := immich.New(base, token, "immich-exporter/"+version, &http.Client{Timeout: *flags.requestTimeout})
+	c := immich.New(base, token, "immich-exporter/"+version,
+		&http.Client{Timeout: *flags.requestTimeout, Transport: transport(*flags.fanoutConcurrency)})
 	exp := exporter.New(c, version, exporterConfig(flags))
 
 	reg := prometheus.NewRegistry()
@@ -130,6 +131,17 @@ func main() {
 		logger.Error("web server", "err", err)
 		os.Exit(1)
 	}
+}
+
+// transport keeps a connection per fan-out request: the default of two would redo the TLS handshake for the rest.
+func transport(conns int) http.RoundTripper {
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	t = t.Clone()
+	t.MaxIdleConnsPerHost = conns
+	return t
 }
 
 // registerFlags defines every flag, seeding each default from cfg (which has

@@ -5,6 +5,7 @@ package immich
 import (
 	"bytes"
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -53,18 +54,19 @@ func StatusIs(err error, codes ...int) bool {
 	return slices.Contains(codes, ae.Status)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+// send returns the 200 response for the caller to read and close; any other status comes back as an APIError.
+func (c *Client) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rdr = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rdr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("x-api-key", c.token)
 	req.Header.Set("Accept", "application/json")
@@ -76,18 +78,57 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, &APIError{method, path, resp.StatusCode, strings.TrimSpace(string(b))}
+	}
+	return resp, nil
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	resp, err := c.send(ctx, method, path, body)
+	if err != nil {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return &APIError{method, path, resp.StatusCode, strings.TrimSpace(string(b))}
-	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	return json.UnmarshalRead(resp.Body, out)
+}
+
+// Each decodes the JSON array at path one element at a time, so a listing of the whole library never sits in memory.
+func Each[T any](ctx context.Context, c *Client, path string, visit func(T)) error {
+	resp, err := c.send(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	dec := jsontext.NewDecoder(resp.Body)
+	tok, err := dec.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != jsontext.BeginArray.Kind() {
+		return fmt.Errorf("GET %s: answered JSON %s, not an array", path, tok.Kind())
+	}
+	for dec.PeekKind() != jsontext.EndArray.Kind() {
+		var v T
+		err = json.UnmarshalDecode(dec, &v)
+		if err != nil {
+			return err
+		}
+		visit(v)
+	}
+	_, err = dec.ReadToken()
+	return err
 }
 
 // Get issues a GET and decodes the JSON response into out (nil to discard).

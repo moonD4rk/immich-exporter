@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/moond4rk/immich-exporter/internal/immich"
 )
 
 type contentSnap struct {
@@ -167,33 +169,34 @@ func (p *poller) collectPlugins(ctx context.Context, s *snapshot) error {
 	return nil
 }
 
+type assetGroup struct {
+	Assets []struct{} `json:"assets"`
+}
+
+// countGroups counts the groups a whole-library listing returns and the assets in them, without holding the listing.
+func (p *poller) countGroups(ctx context.Context, path string) (groups, assets float64, err error) {
+	err = immich.Each(ctx, p.c, path, func(g assetGroup) {
+		groups++
+		assets += float64(len(g.Assets))
+	})
+	return groups, assets, err
+}
+
 func (p *poller) collectDuplicates(ctx context.Context, s *snapshot) error {
-	var dups []struct {
-		Assets []struct{} `json:"assets"`
-	}
-	if err := p.c.Get(ctx, "/duplicates", &dups); err != nil {
+	sets, assets, err := p.countGroups(ctx, "/duplicates")
+	if err != nil {
 		return err
 	}
-	s.content.duplicatesOK = true
-	s.content.duplicateSets = float64(len(dups))
-	for _, d := range dups {
-		s.content.duplicateAssets += float64(len(d.Assets))
-	}
+	s.content.duplicateSets, s.content.duplicateAssets, s.content.duplicatesOK = sets, assets, true
 	return nil
 }
 
 func (p *poller) collectStacks(ctx context.Context, s *snapshot) error {
-	var stacks []struct {
-		Assets []struct{} `json:"assets"`
-	}
-	if err := p.c.Get(ctx, "/stacks", &stacks); err != nil {
+	stacks, assets, err := p.countGroups(ctx, "/stacks")
+	if err != nil {
 		return err
 	}
-	s.content.stacksOK = true
-	s.content.stacks = float64(len(stacks))
-	for _, st := range stacks {
-		s.content.stackedAssets += float64(len(st.Assets))
-	}
+	s.content.stacks, s.content.stackedAssets, s.content.stacksOK = stacks, assets, true
 	return nil
 }
 

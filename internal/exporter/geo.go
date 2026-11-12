@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/moond4rk/immich-exporter/internal/immich"
 )
 
 // cityKey identifies a city within a country; city names repeat across
@@ -53,20 +55,18 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 	// One /map/markers call yields the geotagged total, the per-country and
 	// per-city splits, and each group's asset centroid (mean lat/lon) for a
 	// coords-mode geomap — no place-name → ISO mapping required.
-	var markers []struct {
+	type marker struct {
 		City    string  `json:"city"`
 		Country string  `json:"country"`
 		Lat     float64 `json:"lat"`
 		Lon     float64 `json:"lon"`
 	}
-	if err := p.c.Get(ctx, "/map/markers", &markers); err != nil {
-		return err
-	}
-	g.geotagged = set(float64(len(markers)))
 	type acc struct{ sumLat, sumLon, count float64 }
-	countryAgg := map[string]*acc{}
-	cityAgg := map[cityKey]*acc{}
-	for _, m := range markers {
+	var geotagged float64
+	byCountry, byCity := map[string]float64{}, map[cityKey]float64{}
+	countryAgg, cityAgg := map[string]*acc{}, map[cityKey]*acc{}
+	err := immich.Each(ctx, p.c, "/map/markers", func(m marker) {
+		geotagged++
 		country := strings.TrimSpace(m.Country)
 		if country == "" {
 			country = "unknown"
@@ -76,8 +76,8 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 			city = "unknown"
 		}
 		ck := cityKey{city: city, country: country}
-		g.byCountry[country]++
-		g.byCity[ck]++
+		byCountry[country]++
+		byCity[ck]++
 		if country != "unknown" {
 			a := countryAgg[country]
 			if a == nil {
@@ -94,7 +94,11 @@ func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {
 			}
 			a.sumLat, a.sumLon, a.count = a.sumLat+m.Lat, a.sumLon+m.Lon, a.count+1
 		}
+	})
+	if err != nil {
+		return err // a listing cut short must not pass for the whole library
 	}
+	g.geotagged, g.byCountry, g.byCity = set(geotagged), byCountry, byCity
 	for country, a := range countryAgg {
 		// Round to ~11 km so the centroid label stays stable as assets are added.
 		g.countryCentroids[country] = latlon{

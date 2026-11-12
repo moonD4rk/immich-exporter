@@ -921,6 +921,23 @@ func TestCountsUseSearchFilterFromImmich32(t *testing.T) {
 	}
 }
 
+// The markers are aggregated while they stream in, so a listing cut short must leave no part of itself behind.
+func TestCollectGeoKeepsNothingOfACutListing(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /search/suggestions", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, []string{"x"}) })
+	mux.HandleFunc("GET /map/markers", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"country":"China","city":"Shanghai","lat":31,"lon":121},{"country":"Ja`))
+	})
+	p, _ := testPoller(serve(t, mux))
+	s := newSnapshot()
+	if err := p.collectGeo(context.Background(), s); err == nil {
+		t.Fatal("a listing cut short must fail the collector")
+	}
+	if s.geo.geotagged.ok || len(s.geo.byCountry) != 0 || len(s.geo.byCity) != 0 || len(s.geo.countryCentroids) != 0 {
+		t.Errorf("partial listing kept: %+v", s.geo)
+	}
+}
+
 func TestFoldCities(t *testing.T) {
 	g := &geoSnap{
 		byCity: map[cityKey]float64{
