@@ -300,10 +300,11 @@ var demoCollectorCosts = map[string]float64{
 	"maintenance": 0.004, "users/me": 0.006, "server/about": 0.005, "server/version-check": 0.004,
 	"server/version-history": 0.005, "server/features": 0.004, "server/config": 0.004, "server/storage": 0.006,
 	"assets": 0.09, "assets/state": 0.21, "assets/rating": 0.16, "timeline/buckets": 0.05, "people": 0.08,
-	"admin/users": 0.01, "assets/locked": 0.03, "jobs": 0.02, "integrity": 0.01, "database-backups": 0.01, "albums": 0.04,
+	"admin/users": 0.01, "jobs": 0.02, "integrity": 0.01, "database-backups": 0.01, "albums": 0.04,
 	"albums/statistics": 0.01, "shared-links": 0.01, "partners": 0.01, "tags": 0.01, "memories": 0.02,
 	"libraries": 0.05, "api-keys": 0.01, "sessions": 0.01, "notifications": 0.01, "workflows": 0.01, "plugins": 0.01,
 	"cameras": 0.92, "geo": 0.31, "people/statistics": 0.84, "duplicates": 0.38, "stacks": 0.03, "assets/metadata": 0.19,
+	"admin/users/statistics": 0.06,
 }
 
 func demoCollectors(s *snapshot, r *rand.Rand) {
@@ -451,6 +452,11 @@ func demoUsersAt(s *snapshot, images, videos float64) {
 			id: d.id, name: d.name, photos: photos, videos: vids,
 			usageBytes: photos*demoImageBytes + vids*demoVideoBytes, quotaBytes: d.quota, quotaUnlimited: d.quota == 0,
 			photoBytes: set(photos * demoImageBytes), videoBytes: set(vids * demoVideoBytes),
+		})
+		a := &s.assets
+		u.assets = append(u.assets, userAssets{
+			id: d.id, name: d.name, favorite: math.Round(a.favorite.v * d.photos), archived: math.Round(a.archived.v * d.photos),
+			trashed: math.Round(a.trashed.v * d.photos), locked: math.Round(a.locked.v * d.photos),
 		})
 	}
 }

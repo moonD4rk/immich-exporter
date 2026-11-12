@@ -187,11 +187,11 @@ func (p *poller) poll(parent context.Context) {
 		return peopleErr
 	})
 
-	p.refreshBreakdowns(ctx, s, p.breakdowns(people, peopleErr))
+	admin := s.health.keyIsAdmin.v == 1
+	p.refreshBreakdowns(ctx, s, p.breakdowns(people, peopleErr, admin))
 
-	if s.health.keyIsAdmin.v == 1 {
+	if admin {
 		r.soft("admin/users", p.collectUsers)
-		r.soft("assets/locked", p.collectLocked)
 		r.hard("jobs", p.collectJobs)
 		r.soft("integrity", p.collectIntegrity)
 		r.soft("database-backups", p.collectBackups)
@@ -232,7 +232,7 @@ type breakdown struct {
 	carry   func(to, from *snapshot)
 }
 
-func (p *poller) breakdowns(people []person, peopleErr error) []breakdown {
+func (p *poller) breakdowns(people []person, peopleErr error, admin bool) []breakdown {
 	var bs []breakdown
 	add := func(enabled bool, name string, collect collectFunc, carry func(to, from *snapshot)) {
 		if enabled {
@@ -256,6 +256,9 @@ func (p *poller) breakdowns(people []person, peopleErr error) []breakdown {
 		t.stacks, t.stackedAssets, t.stacksOK = f.stacks, f.stackedAssets, f.stacksOK
 	})
 	add(p.filter, "assets/metadata", p.collectMetadata, func(to, from *snapshot) { to.metadata = from.metadata })
+	add(admin, "admin/users/statistics", p.collectUserAssets, func(to, from *snapshot) {
+		to.users.assets, to.assets.locked = from.users.assets, from.assets.locked
+	})
 	return bs
 }
 

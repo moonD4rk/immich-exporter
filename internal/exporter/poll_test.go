@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"maps"
@@ -298,19 +299,28 @@ func immichMux(isAdmin bool) *http.ServeMux {
 	mux.HandleFunc("GET /people/{id}/statistics", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"assets": 10})
 	})
-	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, []map[string]any{
-			{"id": "u1", "status": "active", "isAdmin": true},
-			{"id": "u2", "status": "active", "isAdmin": false},
-			{"id": "u3", "status": "deleted", "isAdmin": false},
-		})
+	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
+		users := []map[string]any{
+			{"id": "u1", "name": "admin", "status": "active", "isAdmin": true},
+			{"id": "u2", "name": "bob", "status": "active", "isAdmin": false},
+		}
+		if r.URL.Query().Get("withDeleted") == "true" {
+			users = append(users, map[string]any{"id": "u3", "name": "carol", "status": "deleted", "isAdmin": false})
+		}
+		writeJSON(w, users)
 	})
 	mux.HandleFunc("GET /admin/users/{id}/statistics", func(w http.ResponseWriter, r *http.Request) {
-		var total float64
-		if r.URL.Query().Get("visibility") == "locked" {
-			total = map[string]float64{"u1": 2, "u2": 1}[r.PathValue("id")]
+		totals := map[string]map[string]float64{
+			"isFavorite=true":    {"u1": 12, "u2": 1},
+			"visibility=archive": {"u1": 5},
+			"isTrashed=true":     {"u1": 3},
+			"visibility=locked":  {"u1": 2, "u2": 1},
+		}[r.URL.RawQuery]
+		if totals == nil {
+			http.Error(w, "unexpected statistics query "+r.URL.RawQuery, http.StatusBadRequest)
+			return
 		}
-		writeJSON(w, map[string]any{"total": total})
+		writeJSON(w, map[string]any{"total": totals[r.PathValue("id")]})
 	})
 	mux.HandleFunc("GET /queues", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []map[string]any{
@@ -460,6 +470,10 @@ func TestPollAdmin(t *testing.T) {
 	if len(s.people.assets) != 3 {
 		t.Errorf("personAssets len = %d, want 3", len(s.people.assets))
 	}
+	slices.SortFunc(s.users.assets, func(a, b userAssets) int { return cmp.Compare(a.id, b.id) })
+	if want := []userAssets{{"u1", "admin", 12, 5, 3, 2}, {"u2", "bob", 1, 0, 0, 1}}; !slices.Equal(s.users.assets, want) {
+		t.Errorf("user assets = %+v, want %+v", s.users.assets, want)
+	}
 	eq("users active", s.users.byStatus["active"], 2)
 	eq("users deleted", s.users.byStatus["deleted"], 1)
 	eq("albums shared", s.albums.sharedCount, 1)
@@ -512,7 +526,7 @@ func TestPollAdmin(t *testing.T) {
 			t.Errorf("collector %s failed", name)
 		}
 	}
-	for _, name := range []string{"users/me", "jobs", "geo", "cameras", "duplicates", "assets/metadata", "people/statistics"} {
+	for _, name := range []string{"users/me", "jobs", "geo", "cameras", "duplicates", "assets/metadata", "people/statistics", "admin/users/statistics"} {
 		if _, ok := s.health.collectors[name]; !ok {
 			t.Errorf("collector %s missing from %v", name, slices.Collect(maps.Keys(s.health.collectors)))
 		}
@@ -561,8 +575,9 @@ func TestPollNonAdminFallback(t *testing.T) {
 	if len(s.jobs.queues) != 0 {
 		t.Errorf("jobQueues should be empty for non-admin, got %d", len(s.jobs.queues))
 	}
-	if len(s.users.perUser) != 0 {
-		t.Errorf("perUser should be empty for non-admin, got %d", len(s.users.perUser))
+	if len(s.users.perUser) != 0 || len(s.users.assets) != 0 || s.assets.locked.ok {
+		t.Errorf("per-user stats should be absent for non-admin, got %d, %d, locked present=%v",
+			len(s.users.perUser), len(s.users.assets), s.assets.locked.ok)
 	}
 	if s.health.scrapeSuccess != 1 {
 		t.Errorf("scrapeSuccess = %v, want 1 (non-admin is not an error)", s.health.scrapeSuccess)
@@ -1113,6 +1128,33 @@ func TestCollectAssetStates(t *testing.T) {
 				s.assets.hidden.v, s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
 		}
 	})
+}
+
+// One user's statistics failing must fail the collector: a locked total over the other users would pass for all.
+func TestCollectUserAssetsIsAllOrNothing(t *testing.T) {
+	mux := immichMux(true)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin/users/u2/statistics" && r.URL.RawQuery == "visibility=locked" {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	p, _ := testPoller(serve(t, h))
+	s := newSnapshot()
+	if err := p.collectUserAssets(context.Background(), s); err == nil {
+		t.Fatal("want the failed call's error")
+	}
+	if s.assets.locked.ok || len(s.users.assets) != 0 {
+		t.Errorf("partial result kept: locked=%v, %+v", s.assets.locked, s.users.assets)
+	}
+
+	p, _ = testPoller(serve(t, immichMux(true)))
+	p.cfg.FanoutLimit = 1
+	s = newSnapshot()
+	if err := p.collectUserAssets(context.Background(), s); err != nil || len(s.users.assets) != 0 || s.assets.locked.ok {
+		t.Errorf("more users than the fan-out limit: err=%v, %+v; want them skipped", err, s.users.assets)
+	}
 }
 
 func TestCollectSharedLinksNone(t *testing.T) {

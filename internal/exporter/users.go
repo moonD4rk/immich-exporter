@@ -2,6 +2,8 @@ package exporter
 
 import (
 	"context"
+	"log/slog"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -16,10 +18,17 @@ type userStat struct {
 	quotaUnlimited         bool
 }
 
+// userAssets holds one user's asset states from the admin statistics.
+type userAssets struct {
+	id, name                            string
+	favorite, archived, trashed, locked float64
+}
+
 type usersSnap struct {
 	byStatus, byRole map[string]float64
 	ok               bool
 	perUser          []userStat
+	assets           []userAssets
 }
 
 var (
@@ -32,6 +41,11 @@ var (
 	dUserStorage = desc("user_storage_bytes", "Per-user storage usage by asset type, in bytes.", "user_id", "user", "type")
 	dUserQuota   = desc("user_quota_bytes", "Per-user storage quota in bytes (omitted when unlimited).", "user_id", "user")
 	dUserUnlim   = desc("user_quota_unlimited", "1 if the user has no storage quota (unlimited).", "user_id", "user")
+
+	dUserFavorite = desc("user_assets_favorite", "Per-user favourited assets (admin).", "user_id", "user")
+	dUserArchived = desc("user_assets_archived", "Per-user archived assets (admin).", "user_id", "user")
+	dUserTrashed  = desc("user_assets_trashed", "Per-user assets in the trash (admin).", "user_id", "user")
+	dUserLocked   = desc("user_assets_locked", "Per-user assets in the PIN-locked folder (admin).", "user_id", "user")
 )
 
 func (p *poller) collectUsers(ctx context.Context, s *snapshot) error {
@@ -58,27 +72,55 @@ func (p *poller) collectUsers(ctx context.Context, s *snapshot) error {
 	return nil
 }
 
-// collectLocked sums every user's locked-folder assets. Search refuses the
-// locked visibility to an API key ("Elevated permission is required"), but the
-// admin per-user statistics answer it.
-func (p *poller) collectLocked(ctx context.Context, s *snapshot) error {
-	var users []struct {
-		ID string `json:"id"`
+// userAssetStates are the admin statistics queries behind each field of userAssets.
+var userAssetStates = []struct {
+	query string
+	field func(*userAssets) *float64
+}{
+	{"isFavorite=true", func(u *userAssets) *float64 { return &u.favorite }},
+	{"visibility=archive", func(u *userAssets) *float64 { return &u.archived }},
+	{"isTrashed=true", func(u *userAssets) *float64 { return &u.trashed }},
+	// Search refuses the locked folder to an API key ("Elevated permission is required"); these statistics don't.
+	{"visibility=locked", func(u *userAssets) *float64 { return &u.locked }},
+}
+
+// collectUserAssets fails as a whole when one user's statistics do: the locked total must not pass for every user's.
+func (p *poller) collectUserAssets(ctx context.Context, s *snapshot) error {
+	type user struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
+	var users []user
 	if err := p.c.Get(ctx, "/admin/users", &users); err != nil {
 		return err
 	}
-	var locked float64
-	for _, u := range users {
-		var st struct {
-			Total float64 `json:"total"`
-		}
-		if err := p.c.Get(ctx, "/admin/users/"+u.ID+"/statistics?visibility=locked", &st); err != nil {
-			return err
-		}
-		locked += st.Total
+	if len(users) > p.cfg.FanoutLimit {
+		slog.Warn("per-user asset states skipped: too many users", "users", len(users), "limit", p.cfg.FanoutLimit)
+		return nil
 	}
-	s.assets.locked = set(locked)
+	var failed atomic.Pointer[error]
+	assets := parallel(users, p.cfg.FanoutConcurrency, func(u user) (userAssets, bool) {
+		ua := userAssets{id: u.ID, name: u.Name}
+		for _, st := range userAssetStates {
+			var res struct {
+				Total float64 `json:"total"`
+			}
+			if err := p.c.Get(ctx, "/admin/users/"+u.ID+"/statistics?"+st.query, &res); err != nil {
+				failed.Store(&err)
+				return ua, false
+			}
+			*st.field(&ua) = res.Total
+		}
+		return ua, true
+	})
+	if err := failed.Load(); err != nil {
+		return *err
+	}
+	var locked float64
+	for _, ua := range assets {
+		locked += ua.locked
+	}
+	s.users.assets, s.assets.locked = assets, set(locked)
 	return nil
 }
 
@@ -108,5 +150,11 @@ func emitUsers(ch chan<- prometheus.Metric, s *snapshot) {
 			emit(ch, dUserUnlim, 0, us.id, us.name)
 			emit(ch, dUserQuota, us.quotaBytes, us.id, us.name)
 		}
+	}
+	for _, ua := range u.assets {
+		emit(ch, dUserFavorite, ua.favorite, ua.id, ua.name)
+		emit(ch, dUserArchived, ua.archived, ua.id, ua.name)
+		emit(ch, dUserTrashed, ua.trashed, ua.id, ua.name)
+		emit(ch, dUserLocked, ua.locked, ua.id, ua.name)
 	}
 }
