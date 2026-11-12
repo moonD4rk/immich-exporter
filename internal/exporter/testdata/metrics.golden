@@ -33,7 +33,7 @@ immich_albums_with_shared_link 1
 # HELP immich_api_keys Number of API keys for the key owner.
 # TYPE immich_api_keys gauge
 immich_api_keys 2
-# HELP immich_assets Number of assets by type.
+# HELP immich_assets Number of assets by type: every user's with an admin key, the key owner's otherwise.
 # TYPE immich_assets gauge
 immich_assets{type="IMAGE"} 1000
 immich_assets{type="VIDEO"} 50
@@ -79,7 +79,7 @@ immich_assets_by_rating{rating="3"} 3
 immich_assets_by_rating{rating="4"} 4
 immich_assets_by_rating{rating="5"} 5
 immich_assets_by_rating{rating="unrated"} 990
-# HELP immich_assets_by_year Assets taken per calendar year.
+# HELP immich_assets_by_year Assets in the timeline by the year they were taken.
 # TYPE immich_assets_by_year gauge
 immich_assets_by_year{year="2023"} 350
 immich_assets_by_year{year="2024"} 700
@@ -107,13 +107,16 @@ immich_assets_not_in_album 400
 # HELP immich_assets_offline Number of offline assets (file missing on disk).
 # TYPE immich_assets_offline gauge
 immich_assets_offline 2
-# HELP immich_assets_storage_bytes Storage used by assets by type, in bytes.
+# HELP immich_assets_storage_bytes Storage used by assets by type, in bytes (admin).
 # TYPE immich_assets_storage_bytes gauge
 immich_assets_storage_bytes{type="IMAGE"} 9000
 immich_assets_storage_bytes{type="VIDEO"} 3000
 # HELP immich_assets_trashed Number of trashed assets.
 # TYPE immich_assets_trashed gauge
 immich_assets_trashed 3
+# HELP immich_assets_visible Assets in the API key owner's timeline and archive, which leaves out the trash and hidden and locked assets. The counts that come from Immich's search are counted among these.
+# TYPE immich_assets_visible gauge
+immich_assets_visible 1050
 # HELP immich_assets_with_camera Visible assets (timeline and archive) whose EXIF names a camera make (Immich 3.2+).
 # TYPE immich_assets_with_camera gauge
 immich_assets_with_camera 900
@@ -159,11 +162,11 @@ immich_exporter_build_info{goversion="go-golden",version="golden"} 1
 # HELP immich_exporter_collector_duration_seconds Duration of the collector's latest run, in seconds.
 # TYPE immich_exporter_collector_duration_seconds gauge
 immich_exporter_collector_duration_seconds{collector="admin/users"} 0.01
+immich_exporter_collector_duration_seconds{collector="admin/users/statistics"} 0.01
 immich_exporter_collector_duration_seconds{collector="albums"} 0.01
 immich_exporter_collector_duration_seconds{collector="albums/statistics"} 0.01
 immich_exporter_collector_duration_seconds{collector="api-keys"} 0.01
 immich_exporter_collector_duration_seconds{collector="assets"} 0.01
-immich_exporter_collector_duration_seconds{collector="assets/locked"} 0.01
 immich_exporter_collector_duration_seconds{collector="assets/metadata"} 0.01
 immich_exporter_collector_duration_seconds{collector="assets/rating"} 0.01
 immich_exporter_collector_duration_seconds{collector="assets/state"} 0.01
@@ -197,11 +200,11 @@ immich_exporter_collector_duration_seconds{collector="workflows"} 0.01
 # HELP immich_exporter_collector_success 1 if the collector's latest run got its data; 0 if it failed, including when the API key may not use it or the server lacks it.
 # TYPE immich_exporter_collector_success gauge
 immich_exporter_collector_success{collector="admin/users"} 1
+immich_exporter_collector_success{collector="admin/users/statistics"} 1
 immich_exporter_collector_success{collector="albums"} 1
 immich_exporter_collector_success{collector="albums/statistics"} 1
 immich_exporter_collector_success{collector="api-keys"} 1
 immich_exporter_collector_success{collector="assets"} 1
-immich_exporter_collector_success{collector="assets/locked"} 1
 immich_exporter_collector_success{collector="assets/metadata"} 1
 immich_exporter_collector_success{collector="assets/rating"} 1
 immich_exporter_collector_success{collector="assets/state"} 1
@@ -235,10 +238,10 @@ immich_exporter_collector_success{collector="workflows"} 1
 # HELP immich_exporter_last_scrape_duration_seconds Duration of the last Immich poll, in seconds.
 # TYPE immich_exporter_last_scrape_duration_seconds gauge
 immich_exporter_last_scrape_duration_seconds 0.42
-# HELP immich_exporter_last_success_timestamp_seconds Unix time of the last fully-successful poll.
+# HELP immich_exporter_last_success_timestamp_seconds Unix time of the last fully-successful poll; absent until one succeeds.
 # TYPE immich_exporter_last_success_timestamp_seconds gauge
 immich_exporter_last_success_timestamp_seconds 1.7e+09
-# HELP immich_exporter_scrape_errors_total Cumulative count of failed Immich API calls.
+# HELP immich_exporter_scrape_errors_total Collector runs that failed since the exporter started. A poll that cannot reach Immich counts once, and a collector the API key may not use does not count.
 # TYPE immich_exporter_scrape_errors_total counter
 immich_exporter_scrape_errors_total 0
 # HELP immich_exporter_up 1 if the last Immich poll fully succeeded.
@@ -402,6 +405,22 @@ immich_tags_root 1
 # HELP immich_up 1 if the Immich server answered /server/ping.
 # TYPE immich_up gauge
 immich_up 1
+# HELP immich_user_assets_archived Per-user archived assets (admin).
+# TYPE immich_user_assets_archived gauge
+immich_user_assets_archived{user="admin",user_id="u1"} 5
+immich_user_assets_archived{user="bob",user_id="u2"} 0
+# HELP immich_user_assets_favorite Per-user favourited assets (admin).
+# TYPE immich_user_assets_favorite gauge
+immich_user_assets_favorite{user="admin",user_id="u1"} 12
+immich_user_assets_favorite{user="bob",user_id="u2"} 1
+# HELP immich_user_assets_locked Per-user assets in the PIN-locked folder (admin).
+# TYPE immich_user_assets_locked gauge
+immich_user_assets_locked{user="admin",user_id="u1"} 2
+immich_user_assets_locked{user="bob",user_id="u2"} 1
+# HELP immich_user_assets_trashed Per-user assets in the trash (admin).
+# TYPE immich_user_assets_trashed gauge
+immich_user_assets_trashed{user="admin",user_id="u1"} 3
+immich_user_assets_trashed{user="bob",user_id="u2"} 0
 # HELP immich_user_photos Per-user photo count.
 # TYPE immich_user_photos gauge
 immich_user_photos{user="admin",user_id="u1"} 1000

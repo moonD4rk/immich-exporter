@@ -275,7 +275,7 @@ func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
 	// Trips bring home more videos than everyday life does.
 	images, videos := math.Round(24610+0.93*home+0.86*trip), math.Round(1882+0.07*home+0.14*trip)
 	s := newSnapshot()
-	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, 1
+	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, set(1)
 	s.health.scrapeDurationSeconds = 0.95 + 0.2*tl.r.Float64() + 0.004*busy
 	s.health.lastSuccessUnix = float64(t.Add(-41 * time.Second).Unix())
 	demoCollectors(s, tl.r)
@@ -300,10 +300,11 @@ var demoCollectorCosts = map[string]float64{
 	"maintenance": 0.004, "users/me": 0.006, "server/about": 0.005, "server/version-check": 0.004,
 	"server/version-history": 0.005, "server/features": 0.004, "server/config": 0.004, "server/storage": 0.006,
 	"assets": 0.09, "assets/state": 0.21, "assets/rating": 0.16, "timeline/buckets": 0.05, "people": 0.08,
-	"admin/users": 0.01, "assets/locked": 0.03, "jobs": 0.02, "integrity": 0.01, "database-backups": 0.01, "albums": 0.04,
+	"admin/users": 0.01, "jobs": 0.02, "integrity": 0.01, "database-backups": 0.01, "albums": 0.04,
 	"albums/statistics": 0.01, "shared-links": 0.01, "partners": 0.01, "tags": 0.01, "memories": 0.02,
 	"libraries": 0.05, "api-keys": 0.01, "sessions": 0.01, "notifications": 0.01, "workflows": 0.01, "plugins": 0.01,
 	"cameras": 0.92, "geo": 0.31, "people/statistics": 0.84, "duplicates": 0.38, "stacks": 0.03, "assets/metadata": 0.19,
+	"admin/users/statistics": 0.06,
 }
 
 func demoCollectors(s *snapshot, r *rand.Rand) {
@@ -318,7 +319,7 @@ func demoServer(s *snapshot, t time.Time, images, videos float64) {
 		version: "v3.3.5", sourceRef: "v3.3.5", sourceCommit: "4b1c9e2", build: "18624409130",
 		nodejs: "v24.21.0", exiftool: "13.59", ffmpeg: "7.1.4-3", imagemagick: "7.1.2-21", libvips: "8.18.7", ok: true,
 	}
-	sv.licensed, sv.latestVersion = 1, "v3.3.5"
+	sv.licensed, sv.latestVersion = set(1), "v3.3.5"
 	sv.maintenance = set(0)
 	sv.versionCheckedUnix = set(float64(t.Add(-37 * time.Minute).Unix()))
 	sv.versionInstalledUnix = set(float64(t.Add(-4*24*time.Hour - 7*time.Hour).Unix()))
@@ -371,6 +372,7 @@ func demoAssets(s *snapshot, year int, images, videos, home, trip, removed float
 		unrated -= n
 	}
 	a.byRating["unrated"] = unrated
+	a.visible = set(images + videos)
 	a.favorite = set(math.Round(1284 + 0.03*(home+trip)))
 	a.archived, a.hidden, a.offline, a.locked = set(862), set(37), set(0), set(18)
 	a.trashed = set(math.Round(54 + removed))
@@ -450,6 +452,11 @@ func demoUsersAt(s *snapshot, images, videos float64) {
 			id: d.id, name: d.name, photos: photos, videos: vids,
 			usageBytes: photos*demoImageBytes + vids*demoVideoBytes, quotaBytes: d.quota, quotaUnlimited: d.quota == 0,
 			photoBytes: set(photos * demoImageBytes), videoBytes: set(vids * demoVideoBytes),
+		})
+		a := &s.assets
+		u.assets = append(u.assets, userAssets{
+			id: d.id, name: d.name, favorite: math.Round(a.favorite.v * d.photos), archived: math.Round(a.archived.v * d.photos),
+			trashed: math.Round(a.trashed.v * d.photos), locked: math.Round(a.locked.v * d.photos),
 		})
 	}
 }

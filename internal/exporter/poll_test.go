@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"maps"
@@ -22,9 +23,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 // searchStatsTotal returns a deterministic count for a StatisticsSearchDto body
-// so per-filter breakdowns can be asserted.
+// in either dialect, so per-filter breakdowns can be asserted.
 func searchStatsTotal(m map[string]any) float64 {
+	if f, ok := m["filter"].(map[string]any); ok {
+		return filterTotal(f)
+	}
 	switch {
+	case len(m) == 0:
+		return 1051 // the 1050 visible assets and the hidden one
 	case m["isFavorite"] == true:
 		return 12
 	case m["visibility"] == "archive":
@@ -39,6 +45,13 @@ func searchStatsTotal(m map[string]any) float64 {
 		return 400
 	case m["isEncoded"] == true:
 		return 40
+	}
+	return fieldTotal(m)
+}
+
+// fieldTotal counts by the fields both dialects name alike, given as field -> value.
+func fieldTotal(m map[string]any) float64 {
+	switch {
 	case m["type"] == "IMAGE":
 		return 1000
 	case m["type"] == "VIDEO":
@@ -59,38 +72,81 @@ func searchStatsTotal(m map[string]any) float64 {
 		f, _ := v.(float64)
 		return f
 	}
-	if f, ok := m["filter"].(map[string]any); ok {
-		return filterTotal(f)
-	}
 	return 0
 }
 
-// filterTotal answers StatisticsSearchDto.filter bodies scoped to visible
-// assets: 1050 of them, 6 without a recorded file size. An unscoped filter
-// gets a total no assertion expects, as a live server would add the hidden
-// video halves of live photos.
+// filterTotal answers StatisticsSearchDto.filter bodies the way Immich 3.2+ does: only what the filter excludes is
+// left out, so a count of visible assets must name the visibilities and exclude the trash itself. Anything else gets
+// -1, a total no assertion expects.
 func filterTotal(f map[string]any) float64 {
-	v, _ := f["visibility"].(map[string]any)
-	if in, _ := v["in"].([]any); !slices.Equal(in, []any{"timeline", "archive"}) {
+	f = maps.Clone(f)
+	vis, _ := f["visibility"].(map[string]any)
+	trash, _ := f["trashedAt"].(map[string]any)
+	untrashed := len(trash) == 1 && trash["eq"] == nil && f["trashedAt"] != nil
+	delete(f, "visibility")
+	delete(f, "trashedAt")
+	if in, _ := vis["in"].([]any); !slices.Equal(in, []any{"timeline", "archive"}) {
+		switch {
+		case !untrashed || len(f) != 0:
+			return -1
+		case vis["eq"] == "archive":
+			return 5
+		case vis["eq"] == "hidden":
+			return 1
+		}
 		return -1
 	}
-	f = maps.Clone(f)
-	delete(f, "visibility")
+	if c, ok := f["isOffline"].(map[string]any); ok && c["eq"] == true && trash == nil {
+		return 2 // offline assets sit in the trash
+	}
+	if !untrashed {
+		return -1
+	}
+	return visibleTotal(f)
+}
+
+// visibleTotal counts among the 1050 visible assets, 6 of them without a recorded file size.
+func visibleTotal(f map[string]any) float64 {
 	if len(f) == 0 {
 		return 1050
 	}
-	if f["hasPeople"] != nil {
+	is := func(field string, v any) bool {
+		c, ok := f[field].(map[string]any)
+		return ok && c["eq"] == v
+	}
+	switch {
+	case is("isFavorite", true):
+		return 12
+	case is("isMotion", true):
+		return 30
+	case is("hasAlbums", false):
+		return 400
+	case is("isEncoded", true):
+		return 40
+	case is("hasPeople", true):
 		return 600
 	}
-	if c, ok := f["make"].(map[string]any); ok && c["ne"] == nil {
-		return 900
+	if c, ok := f["make"].(map[string]any); ok && len(c) == 1 {
+		if _, ne := c["ne"]; ne && c["ne"] == nil {
+			return 900
+		}
 	}
-	size, _ := f["fileSizeInBytes"].(map[string]any)
-	if gte, ok := size["gte"].(float64); ok && gte == 1<<30 {
-		return 4
+	if size, ok := f["fileSizeInBytes"].(map[string]any); ok {
+		if gte, ok := size["gte"].(float64); ok && gte == 1<<30 {
+			return 4
+		}
+		below, _ := size["lt"].(float64)
+		return map[float64]float64{1 << 20: 100, 5 << 20: 700, 20 << 20: 950, 100 << 20: 1000, 1 << 30: 1040}[below]
 	}
-	below, _ := size["lt"].(float64)
-	return map[float64]float64{1 << 20: 100, 5 << 20: 700, 20 << 20: 950, 100 << 20: 1000, 1 << 30: 1040}[below]
+	flat := map[string]any{}
+	for field, c := range f {
+		c, ok := c.(map[string]any)
+		if _, isEq := c["eq"]; !ok || !isEq || len(c) != 1 {
+			return -1
+		}
+		flat[field] = c["eq"]
+	}
+	return fieldTotal(flat)
 }
 
 // mockReleaseCheck is when the mock server last checked for releases; the
@@ -243,19 +299,28 @@ func immichMux(isAdmin bool) *http.ServeMux {
 	mux.HandleFunc("GET /people/{id}/statistics", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"assets": 10})
 	})
-	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, []map[string]any{
-			{"id": "u1", "status": "active", "isAdmin": true},
-			{"id": "u2", "status": "active", "isAdmin": false},
-			{"id": "u3", "status": "deleted", "isAdmin": false},
-		})
+	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
+		users := []map[string]any{
+			{"id": "u1", "name": "admin", "status": "active", "isAdmin": true},
+			{"id": "u2", "name": "bob", "status": "active", "isAdmin": false},
+		}
+		if r.URL.Query().Get("withDeleted") == "true" {
+			users = append(users, map[string]any{"id": "u3", "name": "carol", "status": "deleted", "isAdmin": false})
+		}
+		writeJSON(w, users)
 	})
 	mux.HandleFunc("GET /admin/users/{id}/statistics", func(w http.ResponseWriter, r *http.Request) {
-		var total float64
-		if r.URL.Query().Get("visibility") == "locked" {
-			total = map[string]float64{"u1": 2, "u2": 1}[r.PathValue("id")]
+		totals := map[string]map[string]float64{
+			"isFavorite=true":    {"u1": 12, "u2": 1},
+			"visibility=archive": {"u1": 5},
+			"isTrashed=true":     {"u1": 3},
+			"visibility=locked":  {"u1": 2, "u2": 1},
+		}[r.URL.RawQuery]
+		if totals == nil {
+			http.Error(w, "unexpected statistics query "+r.URL.RawQuery, http.StatusBadRequest)
+			return
 		}
-		writeJSON(w, map[string]any{"total": total})
+		writeJSON(w, map[string]any{"total": totals[r.PathValue("id")]})
 	})
 	mux.HandleFunc("GET /queues", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []map[string]any{
@@ -356,15 +421,17 @@ func TestPollAdmin(t *testing.T) {
 	}
 	eq("serverUp", s.health.serverUp, 1)
 	eq("scrapeSuccess", s.health.scrapeSuccess, 1)
-	eq("keyIsAdmin", s.health.keyIsAdmin, 1)
+	eq("keyIsAdmin", s.health.keyIsAdmin.v, 1)
 	eq("assets IMAGE", s.assets.byType["IMAGE"], 1000)
 	eq("assets VIDEO", s.assets.byType["VIDEO"], 50)
 	eq("serverUsageBytes", s.assets.serverUsageBytes.v, 12000)
 	if len(s.users.perUser) != 2 || !s.users.perUser[0].quotaUnlimited || s.users.perUser[1].quotaBytes != 1000 {
 		t.Errorf("perUser = %+v", s.users.perUser)
 	}
+	eq("visible", s.assets.visible.v, 1050)
 	eq("favorite", s.assets.favorite.v, 12)
 	eq("archived", s.assets.archived.v, 5)
+	eq("hidden", s.assets.hidden.v, 1)
 	eq("offline", s.assets.offline.v, 2)
 	eq("trashed", s.assets.trashed.v, 3)
 	eq("locked", s.assets.locked.v, 3)
@@ -403,6 +470,10 @@ func TestPollAdmin(t *testing.T) {
 	if len(s.people.assets) != 3 {
 		t.Errorf("personAssets len = %d, want 3", len(s.people.assets))
 	}
+	slices.SortFunc(s.users.assets, func(a, b userAssets) int { return cmp.Compare(a.id, b.id) })
+	if want := []userAssets{{"u1", "admin", 12, 5, 3, 2}, {"u2", "bob", 1, 0, 0, 1}}; !slices.Equal(s.users.assets, want) {
+		t.Errorf("user assets = %+v, want %+v", s.users.assets, want)
+	}
 	eq("users active", s.users.byStatus["active"], 2)
 	eq("users deleted", s.users.byStatus["deleted"], 1)
 	eq("albums shared", s.albums.sharedCount, 1)
@@ -421,7 +492,7 @@ func TestPollAdmin(t *testing.T) {
 	eq("stackedAssets", s.content.stackedAssets, 3)
 	eq("libraries", s.content.libraries.v, 1)
 	eq("storage size", s.server.storageSizeBytes.v, 1000)
-	eq("serverLicensed", s.server.licensed, 1)
+	eq("serverLicensed", s.server.licensed.v, 1)
 	eq("updateAvail", s.server.updateAvail, 1)
 	if s.server.about.version != "v3.3.4" || s.server.latestVersion != "v3.3.5" {
 		t.Errorf("version = %q, latest = %q", s.server.about.version, s.server.latestVersion)
@@ -455,7 +526,7 @@ func TestPollAdmin(t *testing.T) {
 			t.Errorf("collector %s failed", name)
 		}
 	}
-	for _, name := range []string{"users/me", "jobs", "geo", "cameras", "duplicates", "assets/metadata", "people/statistics"} {
+	for _, name := range []string{"users/me", "jobs", "geo", "cameras", "duplicates", "assets/metadata", "people/statistics", "admin/users/statistics"} {
 		if _, ok := s.health.collectors[name]; !ok {
 			t.Errorf("collector %s missing from %v", name, slices.Collect(maps.Keys(s.health.collectors)))
 		}
@@ -490,8 +561,8 @@ func TestPollNonAdminFallback(t *testing.T) {
 	if s == nil {
 		t.Fatal("nil snapshot")
 	}
-	if s.health.keyIsAdmin != 0 {
-		t.Errorf("keyIsAdmin = %v, want 0", s.health.keyIsAdmin)
+	if k := s.health.keyIsAdmin; !k.ok || k.v != 0 {
+		t.Errorf("keyIsAdmin = %v (present=%v), want 0", k.v, k.ok)
 	}
 	// Asset counts come from the owner-scoped search/statistics fallback.
 	if s.assets.byType["IMAGE"] != 1000 || s.assets.byType["VIDEO"] != 50 {
@@ -504,8 +575,9 @@ func TestPollNonAdminFallback(t *testing.T) {
 	if len(s.jobs.queues) != 0 {
 		t.Errorf("jobQueues should be empty for non-admin, got %d", len(s.jobs.queues))
 	}
-	if len(s.users.perUser) != 0 {
-		t.Errorf("perUser should be empty for non-admin, got %d", len(s.users.perUser))
+	if len(s.users.perUser) != 0 || len(s.users.assets) != 0 || s.assets.locked.ok {
+		t.Errorf("per-user stats should be absent for non-admin, got %d, %d, locked present=%v",
+			len(s.users.perUser), len(s.users.assets), s.assets.locked.ok)
 	}
 	if s.health.scrapeSuccess != 1 {
 		t.Errorf("scrapeSuccess = %v, want 1 (non-admin is not an error)", s.health.scrapeSuccess)
@@ -637,6 +709,124 @@ func TestPollMaintenanceSkipsTheRest(t *testing.T) {
 	}
 }
 
+// An Immich that is down fails every call alike, so the poll stops at the ping: one error, not one per collector.
+func TestPollStopsWhenImmichIsDown(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	p, snap := testPoller(srv)
+	srv.Close()
+	p.poll(context.Background())
+	s := snap.Load()
+	if s.health.serverUp != 0 || s.health.scrapeSuccess != 0 {
+		t.Errorf("serverUp = %v, scrapeSuccess = %v; want 0, 0", s.health.serverUp, s.health.scrapeSuccess)
+	}
+	if n := p.scrapeErrors.Load(); n != 1 {
+		t.Errorf("scrapeErrors = %d, want 1", n)
+	}
+	if len(s.health.collectors) != 0 {
+		t.Errorf("collectors ran against a dead server: %v", slices.Collect(maps.Keys(s.health.collectors)))
+	}
+	if s.health.keyIsAdmin.ok || s.server.licensed.ok {
+		t.Error("what the poll never learned must stay absent, not read as not admin and unlicensed")
+	}
+}
+
+// A base URL without /api answers 404 to everything. That must fail the poll, not pass as a key without permissions.
+func TestPollFailsWhenPingIsNotAnswered(t *testing.T) {
+	var calls atomic.Int32
+	p, snap := testPoller(serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.NotFound(w, r)
+	})))
+	p.poll(context.Background())
+	if s := snap.Load(); s.health.scrapeSuccess != 0 || s.health.serverUp != 0 {
+		t.Errorf("scrapeSuccess = %v, serverUp = %v; want 0, 0", s.health.scrapeSuccess, s.health.serverUp)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("%d API calls, want the ping and the maintenance status", n)
+	}
+}
+
+// failing answers path with a 500 for its first n calls and counts every call.
+func failing(h http.Handler, path string, n int32, calls *atomic.Int32) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == path && calls.Add(1) <= n {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// A slow-tier collector that fails gets one retry on the next poll: a blip must not blank its metrics for the whole
+// interval, and a listing that always fails must not be fetched on every poll.
+func TestFailedBreakdownRetriesOnce(t *testing.T) {
+	var duplicates, stacks, markers atomic.Int32
+	h := failing(immichMux(true), "/duplicates", 1, &duplicates)
+	h = failing(h, "/stacks", 1000, &stacks)
+	h = failing(h, "/map/markers", 0, &markers)
+	p, snap := testPoller(serve(t, h))
+	p.cfg.BreakdownInterval = time.Hour
+
+	p.poll(context.Background())
+	if s := snap.Load(); s.content.duplicatesOK || s.content.stacksOK || s.geo.geotagged.v != 4 {
+		t.Fatalf("first poll: duplicatesOK=%v stacksOK=%v geotagged=%v; want both failed and 4 geotagged",
+			s.content.duplicatesOK, s.content.stacksOK, s.geo.geotagged.v)
+	}
+	p.poll(context.Background())
+	s := snap.Load()
+	if !s.content.duplicatesOK || s.content.duplicateSets != 1 || !s.health.collectors["duplicates"].ok {
+		t.Errorf("duplicates not recovered by the retry: %+v, %+v", s.content, s.health.collectors["duplicates"])
+	}
+	if s.content.stacksOK || s.health.collectors["stacks"].ok {
+		t.Error("stacks still fail and must stay absent")
+	}
+	p.poll(context.Background())
+	for name, got := range map[string]int32{"/duplicates": duplicates.Load(), "/stacks": stacks.Load(), "/map/markers": markers.Load()} {
+		if want := map[string]int32{"/duplicates": 2, "/stacks": 2, "/map/markers": 1}[name]; got != want {
+			t.Errorf("%s fetched %d times in three polls, want %d", name, got, want)
+		}
+	}
+	if s := snap.Load(); !s.content.duplicatesOK || s.geo.geotagged.v != 4 {
+		t.Error("recovered and healthy sections must keep carrying forward")
+	}
+}
+
+// A refusal is not a blip: a key without the permission gets the same answer a poll later.
+func TestRefusedBreakdownIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+	mux := immichMux(true)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/duplicates" {
+			calls.Add(1)
+			http.Error(w, `{"message":"refused"}`, http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	p, _ := testPoller(serve(t, h))
+	p.cfg.BreakdownInterval = time.Hour
+	p.poll(context.Background())
+	p.poll(context.Background())
+	if n := calls.Load(); n != 1 {
+		t.Errorf("/duplicates fetched %d times, want 1", n)
+	}
+}
+
+// Without the people list there is nobody to count assets for, which is a failure to retry, not an empty success.
+func TestPersonStatsNeedThePeopleList(t *testing.T) {
+	var calls atomic.Int32
+	p, snap := testPoller(serve(t, failing(immichMux(true), "/people", 1, &calls)))
+	p.cfg.BreakdownInterval = time.Hour
+	p.poll(context.Background())
+	if st := snap.Load().health.collectors["people/statistics"]; st.ok {
+		t.Error("people/statistics succeeded without a people list")
+	}
+	p.poll(context.Background())
+	if s := snap.Load(); len(s.people.assets) != 3 || !s.health.collectors["people/statistics"].ok {
+		t.Errorf("people/statistics not recovered: %d people, %+v", len(s.people.assets), s.health.collectors["people/statistics"])
+	}
+}
+
 // Whole-library listings are slow-tier: within one breakdown interval a second
 // poll must not fetch them again, yet still report their values.
 func TestSlowTierCarriesForward(t *testing.T) {
@@ -701,8 +891,65 @@ func TestSearchFilterNeedsImmich32(t *testing.T) {
 	if n := filtered.Load(); n != 0 {
 		t.Errorf("%d filter queries sent to a v3.1 server", n)
 	}
-	if s := snap.Load(); s.metadata.withPeople.ok {
+	s := snap.Load()
+	if s.metadata.withPeople.ok {
 		t.Error("metadata counts must stay absent before Immich 3.2")
+	}
+	a := s.assets
+	if a.visible.v != 1050 || a.favorite.v != 12 || a.notInAlbum.v != 400 || a.byRating["unrated"] != 990 || s.cameras.byMake["Apple"] != 800 {
+		t.Errorf("flat-field counts = visible %v, favorite %v, notInAlbum %v, unrated %v, Apple %v",
+			a.visible.v, a.favorite.v, a.notInAlbum.v, a.byRating["unrated"], s.cameras.byMake["Apple"])
+	}
+}
+
+// From Immich 3.2 every count goes through StatisticsSearchDto.filter: the flat fields count the hidden video half
+// of each live photo as an asset, and Immich 4 drops them.
+func TestCountsUseSearchFilterFromImmich32(t *testing.T) {
+	mux := immichMux(true)
+	var flat atomic.Int32
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search/statistics" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.UnmarshalRead(r.Body, &body)
+		if _, ok := body["filter"]; !ok {
+			flat.Add(1)
+		}
+		writeJSON(w, map[string]any{"total": searchStatsTotal(body)})
+	})
+	p, snap := testPoller(serve(t, h))
+	p.poll(context.Background())
+	if n := flat.Load(); n != 0 {
+		t.Errorf("%d flat-field queries sent to a v3.3 server", n)
+	}
+	s := snap.Load()
+	for name, v := range map[string]float64{
+		"visible": s.assets.visible.v, "favorite": s.assets.favorite.v, "encoded": s.assets.encoded.v,
+		"rating 3": s.assets.byRating["3"], "unrated": s.assets.byRating["unrated"],
+		"Apple": s.cameras.byMake["Apple"], "24mm": s.cameras.byLens["24mm"],
+	} {
+		if v < 0 {
+			t.Errorf("%s was counted beyond the visible assets", name)
+		}
+	}
+}
+
+// The markers are aggregated while they stream in, so a listing cut short must leave no part of itself behind.
+func TestCollectGeoKeepsNothingOfACutListing(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /search/suggestions", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, []string{"x"}) })
+	mux.HandleFunc("GET /map/markers", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"country":"China","city":"Shanghai","lat":31,"lon":121},{"country":"Ja`))
+	})
+	p, _ := testPoller(serve(t, mux))
+	s := newSnapshot()
+	if err := p.collectGeo(context.Background(), s); err == nil {
+		t.Fatal("a listing cut short must fail the collector")
+	}
+	if s.geo.geotagged.ok || len(s.geo.byCountry) != 0 || len(s.geo.byCity) != 0 || len(s.geo.countryCentroids) != 0 {
+		t.Errorf("partial listing kept: %+v", s.geo)
 	}
 }
 
@@ -823,6 +1070,39 @@ func TestCollectAssetStates(t *testing.T) {
 		}
 	})
 
+	t.Run("flat total loses the hidden assets", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, ""))
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if s.assets.visible.v != 1050 {
+			t.Errorf("visible = %v, want 1050", s.assets.visible.v)
+		}
+		p, _ = testPoller(assetStatesSrv(t, "hidden"))
+		s = newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if s.assets.visible.ok {
+			t.Errorf("visible = %v without the hidden count, want absent", s.assets.visible.v)
+		}
+	})
+
+	t.Run("search filter", func(t *testing.T) {
+		p, _ := testPoller(assetStatesSrv(t, ""))
+		p.filter = true
+		s := newSnapshot()
+		if err := p.collectAssetStates(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		a := s.assets
+		got := []float64{a.visible.v, a.favorite.v, a.archived.v, a.hidden.v, a.offline.v, a.motion.v, a.notInAlbum.v, a.encoded.v}
+		if want := []float64{1050, 12, 5, 1, 2, 30, 400, 40}; !slices.Equal(got, want) {
+			t.Errorf("states = %v, want %v", got, want)
+		}
+	})
+
 	t.Run("every filter refused fails", func(t *testing.T) {
 		srv := serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, `{"message":"Missing required permission"}`, http.StatusForbidden)
@@ -848,6 +1128,33 @@ func TestCollectAssetStates(t *testing.T) {
 				s.assets.hidden.v, s.assets.motion.v, s.assets.notInAlbum.v, s.assets.encoded.v, s.assets.trashed.ok)
 		}
 	})
+}
+
+// One user's statistics failing must fail the collector: a locked total over the other users would pass for all.
+func TestCollectUserAssetsIsAllOrNothing(t *testing.T) {
+	mux := immichMux(true)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin/users/u2/statistics" && r.URL.RawQuery == "visibility=locked" {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	p, _ := testPoller(serve(t, h))
+	s := newSnapshot()
+	if err := p.collectUserAssets(context.Background(), s); err == nil {
+		t.Fatal("want the failed call's error")
+	}
+	if s.assets.locked.ok || len(s.users.assets) != 0 {
+		t.Errorf("partial result kept: locked=%v, %+v", s.assets.locked, s.users.assets)
+	}
+
+	p, _ = testPoller(serve(t, immichMux(true)))
+	p.cfg.FanoutLimit = 1
+	s = newSnapshot()
+	if err := p.collectUserAssets(context.Background(), s); err != nil || len(s.users.assets) != 0 || s.assets.locked.ok {
+		t.Errorf("more users than the fan-out limit: err=%v, %+v; want them skipped", err, s.users.assets)
+	}
 }
 
 func TestCollectSharedLinksNone(t *testing.T) {

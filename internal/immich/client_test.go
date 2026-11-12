@@ -81,3 +81,45 @@ func TestSuggestDropsBlankValues(t *testing.T) {
 		t.Errorf("Suggest = %q", got)
 	}
 }
+
+func TestEachVisitsEveryElement(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/markers":
+			_, _ = fmt.Fprint(w, `[{"city":"Tokyo","extra":{"deep":[1,2]}}, {"city":"Osaka"}, {}]`+"\n")
+		case "/empty":
+			_, _ = fmt.Fprint(w, `[]`)
+		case "/object":
+			_, _ = fmt.Fprint(w, `{"message":"not a list"}`)
+		case "/cut-short":
+			_, _ = fmt.Fprint(w, `[{"city":"Tokyo"},{"city":"Os`)
+		default:
+			http.Error(w, "forbidden", http.StatusForbidden)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "k", "", srv.Client())
+	type marker struct {
+		City string `json:"city"`
+	}
+	visit := func(path string) (cities []string, err error) {
+		err = Each(t.Context(), c, path, func(m marker) { cities = append(cities, m.City) })
+		return cities, err
+	}
+
+	if got, err := visit("/markers"); err != nil || strings.Join(got, ",") != "Tokyo,Osaka," {
+		t.Errorf("Each = %q, %v; want Tokyo, Osaka and an empty city", got, err)
+	}
+	if got, err := visit("/empty"); err != nil || len(got) != 0 {
+		t.Errorf("empty array = %q, %v", got, err)
+	}
+	if _, err := visit("/object"); err == nil {
+		t.Error("an object must not pass for an empty list")
+	}
+	if got, err := visit("/cut-short"); err == nil {
+		t.Errorf("a listing cut short returned %q without an error", got)
+	}
+	if _, err := visit("/refused"); !StatusIs(err, http.StatusForbidden) {
+		t.Errorf("err = %v, want the 403", err)
+	}
+}
