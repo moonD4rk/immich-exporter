@@ -41,12 +41,14 @@ func optional(v *float64) opt {
 // collectorStat is how one collector fared on its latest run.
 type collectorStat struct {
 	ok      bool
+	refused bool // the API key may not use it or the server lacks it, so a retry would fare no better
 	seconds float64
 }
 
 type healthSnap struct {
-	serverUp, scrapeSuccess, scrapeDurationSeconds, lastSuccessUnix, keyIsAdmin float64
-	collectors                                                                  map[string]collectorStat
+	serverUp, scrapeSuccess, scrapeDurationSeconds, lastSuccessUnix float64
+	keyIsAdmin                                                      opt
+	collectors                                                      map[string]collectorStat
 }
 
 // snapshot is the complete set of values from one poll cycle, grouped by the
@@ -141,14 +143,15 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 
 	s := c.snap.Load()
 	if s == nil {
-		emit(ch, dExporterUp, 0)
-		emit(ch, dServerUp, 0)
+		// Before the first poll ends nothing is known, and a 0 would read as Immich being down.
 		return
 	}
 	emit(ch, dExporterUp, s.health.scrapeSuccess)
 	emit(ch, dScrapeDuration, s.health.scrapeDurationSeconds)
-	emit(ch, dLastSuccess, s.health.lastSuccessUnix)
-	emit(ch, dKeyIsAdmin, s.health.keyIsAdmin)
+	if s.health.lastSuccessUnix > 0 {
+		emit(ch, dLastSuccess, s.health.lastSuccessUnix)
+	}
+	emitOpt(ch, dKeyIsAdmin, s.health.keyIsAdmin)
 	for name, st := range s.health.collectors {
 		emit(ch, dCollectorSuccess, boolf(st.ok), name)
 		emit(ch, dCollectorDuration, st.seconds, name)

@@ -14,9 +14,9 @@ import (
 // otherwise panic only at scrape time) or duplicate series.
 func fullSnapshot() *snapshot {
 	s := newSnapshot()
-	s.health = healthSnap{serverUp: 1, scrapeSuccess: 1, scrapeDurationSeconds: 0.42, lastSuccessUnix: 1.7e9, keyIsAdmin: 1}
+	s.health = healthSnap{serverUp: 1, scrapeSuccess: 1, scrapeDurationSeconds: 0.42, lastSuccessUnix: 1.7e9, keyIsAdmin: set(1)}
 	s.server.about = aboutInfo{version: "v1.120.0", sourceRef: "main", ffmpeg: "6.0", ok: true}
-	s.server.licensed = 1
+	s.server.licensed = set(1)
 	s.server.latestVersion, s.server.updateAvail = "v1.121.0", 1
 	s.server.features["smart_search"] = 1
 	s.server.features["facial_recognition"] = 0
@@ -86,13 +86,36 @@ func fullSnapshot() *snapshot {
 	return s
 }
 
+// Until the first poll ends the exporter knows nothing about Immich, and reporting 0 would say it is down.
 func TestCollectNoSnapshot(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	var errs atomic.Int64
 	var snap atomic.Pointer[snapshot]
 	reg.MustRegister(&collector{snap: &snap, scrapeErrors: &errs, version: "test", goVersion: "go1"})
-	if _, err := reg.Gather(); err != nil {
-		t.Fatalf("gather with nil snapshot: %v", err)
+	out := renderText(t, reg)
+	for _, absent := range []string{"immich_up", "immich_exporter_up"} {
+		if strings.Contains(out, absent+" ") {
+			t.Errorf("%s reported before the first poll", absent)
+		}
+	}
+	if !strings.Contains(out, "immich_exporter_build_info") {
+		t.Error("the build info should be there from the start")
+	}
+}
+
+// A poll that never succeeded has no last success: a timestamp of 0 would chart as 1970.
+func TestLastSuccessAbsentUntilAPollSucceeds(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	var errs atomic.Int64
+	var snap atomic.Pointer[snapshot]
+	snap.Store(newSnapshot())
+	reg.MustRegister(&collector{snap: &snap, scrapeErrors: &errs, version: "test", goVersion: "go1"})
+	out := renderText(t, reg)
+	if strings.Contains(out, "immich_exporter_last_success_timestamp_seconds ") {
+		t.Error("last success reported without a successful poll")
+	}
+	if !strings.Contains(out, "immich_exporter_up 0") {
+		t.Error("a failed poll must report immich_exporter_up 0")
 	}
 }
 

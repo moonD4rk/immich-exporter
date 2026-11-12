@@ -411,7 +411,7 @@ func TestPollAdmin(t *testing.T) {
 	}
 	eq("serverUp", s.health.serverUp, 1)
 	eq("scrapeSuccess", s.health.scrapeSuccess, 1)
-	eq("keyIsAdmin", s.health.keyIsAdmin, 1)
+	eq("keyIsAdmin", s.health.keyIsAdmin.v, 1)
 	eq("assets IMAGE", s.assets.byType["IMAGE"], 1000)
 	eq("assets VIDEO", s.assets.byType["VIDEO"], 50)
 	eq("serverUsageBytes", s.assets.serverUsageBytes.v, 12000)
@@ -478,7 +478,7 @@ func TestPollAdmin(t *testing.T) {
 	eq("stackedAssets", s.content.stackedAssets, 3)
 	eq("libraries", s.content.libraries.v, 1)
 	eq("storage size", s.server.storageSizeBytes.v, 1000)
-	eq("serverLicensed", s.server.licensed, 1)
+	eq("serverLicensed", s.server.licensed.v, 1)
 	eq("updateAvail", s.server.updateAvail, 1)
 	if s.server.about.version != "v3.3.4" || s.server.latestVersion != "v3.3.5" {
 		t.Errorf("version = %q, latest = %q", s.server.about.version, s.server.latestVersion)
@@ -547,8 +547,8 @@ func TestPollNonAdminFallback(t *testing.T) {
 	if s == nil {
 		t.Fatal("nil snapshot")
 	}
-	if s.health.keyIsAdmin != 0 {
-		t.Errorf("keyIsAdmin = %v, want 0", s.health.keyIsAdmin)
+	if k := s.health.keyIsAdmin; !k.ok || k.v != 0 {
+		t.Errorf("keyIsAdmin = %v (present=%v), want 0", k.v, k.ok)
 	}
 	// Asset counts come from the owner-scoped search/statistics fallback.
 	if s.assets.byType["IMAGE"] != 1000 || s.assets.byType["VIDEO"] != 50 {
@@ -691,6 +691,124 @@ func TestPollMaintenanceSkipsTheRest(t *testing.T) {
 	// Only /server/ping may be called besides the status itself.
 	if n := other.Load(); n > 1 {
 		t.Errorf("%d other API calls during maintenance, want at most the ping", n)
+	}
+}
+
+// An Immich that is down fails every call alike, so the poll stops at the ping: one error, not one per collector.
+func TestPollStopsWhenImmichIsDown(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	p, snap := testPoller(srv)
+	srv.Close()
+	p.poll(context.Background())
+	s := snap.Load()
+	if s.health.serverUp != 0 || s.health.scrapeSuccess != 0 {
+		t.Errorf("serverUp = %v, scrapeSuccess = %v; want 0, 0", s.health.serverUp, s.health.scrapeSuccess)
+	}
+	if n := p.scrapeErrors.Load(); n != 1 {
+		t.Errorf("scrapeErrors = %d, want 1", n)
+	}
+	if len(s.health.collectors) != 0 {
+		t.Errorf("collectors ran against a dead server: %v", slices.Collect(maps.Keys(s.health.collectors)))
+	}
+	if s.health.keyIsAdmin.ok || s.server.licensed.ok {
+		t.Error("what the poll never learned must stay absent, not read as not admin and unlicensed")
+	}
+}
+
+// A base URL without /api answers 404 to everything. That must fail the poll, not pass as a key without permissions.
+func TestPollFailsWhenPingIsNotAnswered(t *testing.T) {
+	var calls atomic.Int32
+	p, snap := testPoller(serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.NotFound(w, r)
+	})))
+	p.poll(context.Background())
+	if s := snap.Load(); s.health.scrapeSuccess != 0 || s.health.serverUp != 0 {
+		t.Errorf("scrapeSuccess = %v, serverUp = %v; want 0, 0", s.health.scrapeSuccess, s.health.serverUp)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("%d API calls, want the ping and the maintenance status", n)
+	}
+}
+
+// failing answers path with a 500 for its first n calls and counts every call.
+func failing(h http.Handler, path string, n int32, calls *atomic.Int32) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == path && calls.Add(1) <= n {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// A slow-tier collector that fails gets one retry on the next poll: a blip must not blank its metrics for the whole
+// interval, and a listing that always fails must not be fetched on every poll.
+func TestFailedBreakdownRetriesOnce(t *testing.T) {
+	var duplicates, stacks, markers atomic.Int32
+	h := failing(immichMux(true), "/duplicates", 1, &duplicates)
+	h = failing(h, "/stacks", 1000, &stacks)
+	h = failing(h, "/map/markers", 0, &markers)
+	p, snap := testPoller(serve(t, h))
+	p.cfg.BreakdownInterval = time.Hour
+
+	p.poll(context.Background())
+	if s := snap.Load(); s.content.duplicatesOK || s.content.stacksOK || s.geo.geotagged.v != 4 {
+		t.Fatalf("first poll: duplicatesOK=%v stacksOK=%v geotagged=%v; want both failed and 4 geotagged",
+			s.content.duplicatesOK, s.content.stacksOK, s.geo.geotagged.v)
+	}
+	p.poll(context.Background())
+	s := snap.Load()
+	if !s.content.duplicatesOK || s.content.duplicateSets != 1 || !s.health.collectors["duplicates"].ok {
+		t.Errorf("duplicates not recovered by the retry: %+v, %+v", s.content, s.health.collectors["duplicates"])
+	}
+	if s.content.stacksOK || s.health.collectors["stacks"].ok {
+		t.Error("stacks still fail and must stay absent")
+	}
+	p.poll(context.Background())
+	for name, got := range map[string]int32{"/duplicates": duplicates.Load(), "/stacks": stacks.Load(), "/map/markers": markers.Load()} {
+		if want := map[string]int32{"/duplicates": 2, "/stacks": 2, "/map/markers": 1}[name]; got != want {
+			t.Errorf("%s fetched %d times in three polls, want %d", name, got, want)
+		}
+	}
+	if s := snap.Load(); !s.content.duplicatesOK || s.geo.geotagged.v != 4 {
+		t.Error("recovered and healthy sections must keep carrying forward")
+	}
+}
+
+// A refusal is not a blip: a key without the permission gets the same answer a poll later.
+func TestRefusedBreakdownIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+	mux := immichMux(true)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/duplicates" {
+			calls.Add(1)
+			http.Error(w, `{"message":"refused"}`, http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	p, _ := testPoller(serve(t, h))
+	p.cfg.BreakdownInterval = time.Hour
+	p.poll(context.Background())
+	p.poll(context.Background())
+	if n := calls.Load(); n != 1 {
+		t.Errorf("/duplicates fetched %d times, want 1", n)
+	}
+}
+
+// Without the people list there is nobody to count assets for, which is a failure to retry, not an empty success.
+func TestPersonStatsNeedThePeopleList(t *testing.T) {
+	var calls atomic.Int32
+	p, snap := testPoller(serve(t, failing(immichMux(true), "/people", 1, &calls)))
+	p.cfg.BreakdownInterval = time.Hour
+	p.poll(context.Background())
+	if st := snap.Load().health.collectors["people/statistics"]; st.ok {
+		t.Error("people/statistics succeeded without a people list")
+	}
+	p.poll(context.Background())
+	if s := snap.Load(); len(s.people.assets) != 3 || !s.health.collectors["people/statistics"].ok {
+		t.Errorf("people/statistics not recovered: %d people, %+v", len(s.people.assets), s.health.collectors["people/statistics"])
 	}
 }
 

@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +23,7 @@ type aboutInfo struct {
 
 type serverSnap struct {
 	about                                    aboutInfo
-	licensed                                 float64
+	licensed                                 opt
 	latestVersion                            string // empty while the upstream version check is stale
 	updateAvail                              float64
 	maintenance                              opt
@@ -57,11 +58,17 @@ var (
 	dStorageAvail = desc("storage_available_bytes", "Free bytes on the upload filesystem.")
 )
 
-func (p *poller) serverUp(ctx context.Context) bool {
+func (p *poller) ping(ctx context.Context) error {
 	var out struct {
 		Res string `json:"res"`
 	}
-	return p.c.Get(ctx, "/server/ping", &out) == nil && out.Res == "pong"
+	if err := p.c.Get(ctx, "/server/ping", &out); err != nil {
+		return err
+	}
+	if out.Res != "pong" {
+		return fmt.Errorf("GET /server/ping: answered %q, not pong", out.Res)
+	}
+	return nil
 }
 
 // collectMaintenance reads maintenance mode (Immich 2.5+), which needs no permission.
@@ -83,7 +90,7 @@ func (p *poller) collectMe(ctx context.Context, s *snapshot) error {
 	if err := p.c.Get(ctx, "/users/me", &me); err != nil {
 		return err
 	}
-	s.health.keyIsAdmin = boolf(me.IsAdmin)
+	s.health.keyIsAdmin = set(boolf(me.IsAdmin))
 	return nil
 }
 
@@ -108,7 +115,7 @@ func (p *poller) collectAbout(ctx context.Context, s *snapshot) error {
 		nodejs: a.Nodejs, exiftool: a.Exiftool, ffmpeg: a.Ffmpeg, imagemagick: a.Imagemagick,
 		libvips: a.Libvips, ok: true,
 	}
-	s.server.licensed = boolf(a.Licensed)
+	s.server.licensed = set(boolf(a.Licensed))
 	return nil
 }
 
@@ -361,7 +368,7 @@ func emitServer(ch chan<- prometheus.Metric, s *snapshot) {
 		emit(ch, dServerInfo, 1, a.version, a.sourceRef, a.sourceCommit, a.build,
 			a.nodejs, a.exiftool, a.ffmpeg, a.imagemagick, a.libvips)
 	}
-	emit(ch, dServerLicensed, sv.licensed)
+	emitOpt(ch, dServerLicensed, sv.licensed)
 	if sv.latestVersion != "" {
 		emit(ch, dLatestVersion, 1, sv.latestVersion)
 		emit(ch, dUpdateAvailable, sv.updateAvail)

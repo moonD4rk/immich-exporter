@@ -3,6 +3,8 @@ package exporter
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
@@ -39,6 +41,7 @@ type poller struct {
 	// carries forward. Owned by the single run() goroutine, like unavailable.
 	bd            *snapshot
 	lastBreakdown time.Time
+	retried       bool // the breakdowns that failed in the last refresh have had their one retry
 
 	// unavailable holds the collectors last refused for permission or missing
 	// on the server, so that state is logged once rather than every poll.
@@ -69,7 +72,8 @@ func (r *pollRun) soft(name string, fn collectFunc) { r.collect(name, false, fn)
 func (r *pollRun) collect(name string, hard bool, fn collectFunc) {
 	start := time.Now()
 	err := fn(r.ctx, r.s)
-	r.s.health.collectors[name] = collectorStat{ok: err == nil, seconds: time.Since(start).Seconds()}
+	refused := err != nil && unavailable(err, hard)
+	r.s.health.collectors[name] = collectorStat{ok: err == nil, refused: refused, seconds: time.Since(start).Seconds()}
 	if r.p.unavailable == nil {
 		r.p.unavailable = map[string]bool{}
 	}
@@ -79,7 +83,7 @@ func (r *pollRun) collect(name string, hard bool, fn collectFunc) {
 			delete(r.p.unavailable, name)
 			slog.Info("collector available again", "collector", name)
 		}
-	case unavailable(err, hard):
+	case refused:
 		if !r.p.unavailable[name] {
 			r.p.unavailable[name] = true
 			slog.Warn("collector unavailable: the API key lacks the permission or the server lacks the endpoint",
@@ -104,6 +108,26 @@ func unavailable(err error, hard bool) bool {
 	return isSoftStatus(err)
 }
 
+// reachable pings Immich and reads its maintenance mode, and reports whether the rest of the poll would get answers.
+func (r *pollRun) reachable() bool {
+	err := r.p.ping(r.ctx)
+	r.s.health.serverUp = boolf(err == nil)
+	// An error status is still an answer: Immich in maintenance gives one to everything but the maintenance status.
+	if _, answered := errors.AsType[*immich.APIError](err); err == nil || answered {
+		r.soft("maintenance", r.p.collectMaintenance)
+		if r.s.server.maintenance.v == 1 {
+			return false
+		}
+	}
+	if err != nil {
+		r.hardErrs++
+		r.p.scrapeErrors.Add(1)
+		slog.Error("Immich does not answer; skipping this poll", "err", err)
+		return false
+	}
+	return true
+}
+
 // run polls the Immich API every interval until the context is canceled. The
 // loop is sequential, so a slow poll delays the next one rather than overlapping.
 func (p *poller) run(ctx context.Context) {
@@ -125,10 +149,8 @@ func (p *poller) poll(parent context.Context) {
 	s := newSnapshot()
 	r := &pollRun{p: p, ctx: ctx, s: s}
 
-	s.health.serverUp = boolf(p.serverUp(ctx))
-	r.soft("maintenance", p.collectMaintenance)
-	if s.server.maintenance.v == 1 {
-		// Immich answers little but this status during maintenance; polling the rest would only log failures.
+	if !r.reachable() {
+		// In maintenance or down, Immich would fail every other call the same way; one log line says it all.
 		p.finish(s, start, r.hardErrs)
 		return
 	}
@@ -159,18 +181,15 @@ func (p *poller) poll(parent context.Context) {
 	r.soft("timeline/buckets", p.collectYears)
 
 	var people []person
-	r.hard("people", func(ctx context.Context, s *snapshot) (err error) {
-		people, err = p.collectPeople(ctx, s)
-		return err
+	var peopleErr error
+	r.hard("people", func(ctx context.Context, s *snapshot) error {
+		people, peopleErr = p.collectPeople(ctx, s)
+		return peopleErr
 	})
 
-	if p.bd == nil || time.Since(p.lastBreakdown) >= p.cfg.BreakdownInterval {
-		p.bd = p.collectBreakdowns(ctx, people)
-		p.lastBreakdown = time.Now()
-	}
-	applyBreakdown(s, p.bd)
+	p.refreshBreakdowns(ctx, s, p.breakdowns(people, peopleErr))
 
-	if s.health.keyIsAdmin == 1 {
+	if s.health.keyIsAdmin.v == 1 {
 		r.soft("admin/users", p.collectUsers)
 		r.soft("assets/locked", p.collectLocked)
 		r.hard("jobs", p.collectJobs)
@@ -206,48 +225,64 @@ func (p *poller) finish(s *snapshot, start time.Time, hardErrs int) {
 	p.snap.Store(s)
 }
 
-// collectBreakdowns runs the expensive collectors (per-value fan-outs, and
-// listings that return the whole library) into a fresh snapshot, whose
-// sections applyBreakdown carries into every fast snapshot until the next
-// refresh. A failed collector leaves its section empty (consistent with the
-// "no stale values on failure" policy). people is the list collectPeople
-// fetched this poll (nil when that failed).
-func (p *poller) collectBreakdowns(ctx context.Context, people []person) *snapshot {
-	bd := newSnapshot()
-	r := &pollRun{p: p, ctx: ctx, s: bd}
-	if p.cfg.CollectCamera {
-		r.soft("cameras", p.collectCameras)
-	}
-	if p.cfg.CollectGeo {
-		r.soft("geo", p.collectGeo)
-	}
-	if p.cfg.CollectPeople {
-		r.soft("people/statistics", func(ctx context.Context, s *snapshot) error {
-			return p.collectPersonStats(ctx, people, s)
-		})
-	}
-	if p.cfg.CollectHeavy {
-		r.soft("duplicates", p.collectDuplicates)
-		r.soft("stacks", p.collectStacks)
-	}
-	if p.filter {
-		r.soft("assets/metadata", p.collectMetadata)
-	}
-	return bd
+// breakdown is a slow-tier collector and the snapshot section it fills, which fast snapshots carry forward.
+type breakdown struct {
+	name    string
+	collect collectFunc
+	carry   func(to, from *snapshot)
 }
 
-func applyBreakdown(s, bd *snapshot) {
-	if bd == nil {
-		return
+func (p *poller) breakdowns(people []person, peopleErr error) []breakdown {
+	var bs []breakdown
+	add := func(enabled bool, name string, collect collectFunc, carry func(to, from *snapshot)) {
+		if enabled {
+			bs = append(bs, breakdown{name: name, collect: collect, carry: carry})
+		}
 	}
-	s.cameras = bd.cameras
-	s.geo = bd.geo
-	s.metadata = bd.metadata
-	s.people.assets = bd.people.assets
-	c, b := &s.content, &bd.content
-	c.duplicateSets, c.duplicateAssets, c.duplicatesOK = b.duplicateSets, b.duplicateAssets, b.duplicatesOK
-	c.stacks, c.stackedAssets, c.stacksOK = b.stacks, b.stackedAssets, b.stacksOK
-	maps.Copy(s.health.collectors, bd.health.collectors)
+	add(p.cfg.CollectCamera, "cameras", p.collectCameras, func(to, from *snapshot) { to.cameras = from.cameras })
+	add(p.cfg.CollectGeo, "geo", p.collectGeo, func(to, from *snapshot) { to.geo = from.geo })
+	add(p.cfg.CollectPeople, "people/statistics", func(ctx context.Context, s *snapshot) error {
+		if peopleErr != nil {
+			return fmt.Errorf("no people to count assets for: %w", peopleErr)
+		}
+		return p.collectPersonStats(ctx, people, s)
+	}, func(to, from *snapshot) { to.people.assets = from.people.assets })
+	add(p.cfg.CollectHeavy, "duplicates", p.collectDuplicates, func(to, from *snapshot) {
+		t, f := &to.content, &from.content
+		t.duplicateSets, t.duplicateAssets, t.duplicatesOK = f.duplicateSets, f.duplicateAssets, f.duplicatesOK
+	})
+	add(p.cfg.CollectHeavy, "stacks", p.collectStacks, func(to, from *snapshot) {
+		t, f := &to.content, &from.content
+		t.stacks, t.stackedAssets, t.stacksOK = f.stacks, f.stackedAssets, f.stacksOK
+	})
+	add(p.filter, "assets/metadata", p.collectMetadata, func(to, from *snapshot) { to.metadata = from.metadata })
+	return bs
+}
+
+// refreshBreakdowns retries a failed breakdown once before the next refresh: a blip must not cost the whole interval.
+func (p *poller) refreshBreakdowns(ctx context.Context, s *snapshot, bs []breakdown) {
+	due := p.bd == nil || time.Since(p.lastBreakdown) >= p.cfg.BreakdownInterval
+	if due {
+		p.bd, p.retried = newSnapshot(), false
+	}
+	var retrying bool
+	for _, b := range bs {
+		last, ran := p.bd.health.collectors[b.name]
+		failed := ran && !last.ok && !last.refused
+		if due || (failed && !p.retried) {
+			retrying = retrying || !due
+			fresh := newSnapshot()
+			(&pollRun{p: p, ctx: ctx, s: fresh}).soft(b.name, b.collect)
+			b.carry(p.bd, fresh)
+			p.bd.health.collectors[b.name] = fresh.health.collectors[b.name]
+		}
+		b.carry(s, p.bd)
+	}
+	if due {
+		p.lastBreakdown = time.Now()
+	}
+	p.retried = p.retried || retrying
+	maps.Copy(s.health.collectors, p.bd.health.collectors)
 }
 
 // --- helpers ---

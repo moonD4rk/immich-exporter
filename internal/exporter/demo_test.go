@@ -275,7 +275,7 @@ func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
 	// Trips bring home more videos than everyday life does.
 	images, videos := math.Round(24610+0.93*home+0.86*trip), math.Round(1882+0.07*home+0.14*trip)
 	s := newSnapshot()
-	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, 1
+	s.health.serverUp, s.health.scrapeSuccess, s.health.keyIsAdmin = 1, 1, set(1)
 	s.health.scrapeDurationSeconds = 0.95 + 0.2*tl.r.Float64() + 0.004*busy
 	s.health.lastSuccessUnix = float64(t.Add(-41 * time.Second).Unix())
 	demoCollectors(s, tl.r)
@@ -318,7 +318,7 @@ func demoServer(s *snapshot, t time.Time, images, videos float64) {
 		version: "v3.3.5", sourceRef: "v3.3.5", sourceCommit: "4b1c9e2", build: "18624409130",
 		nodejs: "v24.21.0", exiftool: "13.59", ffmpeg: "7.1.4-3", imagemagick: "7.1.2-21", libvips: "8.18.7", ok: true,
 	}
-	sv.licensed, sv.latestVersion = 1, "v3.3.5"
+	sv.licensed, sv.latestVersion = set(1), "v3.3.5"
 	sv.maintenance = set(0)
 	sv.versionCheckedUnix = set(float64(t.Add(-37 * time.Minute).Unix()))
 	sv.versionInstalledUnix = set(float64(t.Add(-4*24*time.Hour - 7*time.Hour).Unix()))

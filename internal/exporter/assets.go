@@ -69,7 +69,7 @@ type serverStats struct {
 }
 
 func (p *poller) collectAssets(ctx context.Context, s *snapshot) error {
-	if s.health.keyIsAdmin == 1 {
+	if s.health.keyIsAdmin.v == 1 {
 		handled, err := p.collectServerStats(ctx, s)
 		if err != nil {
 			return err
