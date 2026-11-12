@@ -966,7 +966,7 @@
       "id": 8,
       "type": "stat",
       "title": "Failed jobs",
-      "description": "Jobs Immich currently holds as failed, across all queues.",
+      "description": "Jobs Immich holds as failed, across all queues. They stay until an admin clears them, so the count is orange only while it has risen during the selected time range.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -981,6 +981,17 @@
           "instant": true,
           "range": false,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "label_replace(vector(1), \"color\", \"orange\", \"\", \"\") and on () (sum(max by (queue) (immich_job_queue{state=\"failed\"})) - sum(min by (queue) (min_over_time(immich_job_queue{state=\"failed\"}[$__range:$__interval]))) > 0) or label_replace(vector(1), \"color\", \"green\", \"\", \"\") unless on () (sum(max by (queue) (immich_job_queue{state=\"failed\"})) - sum(min by (queue) (min_over_time(immich_job_queue{state=\"failed\"}[$__range:$__interval]))) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "B"
         }
       ],
       "fieldConfig": {
@@ -1022,6 +1033,20 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": {
+            "configRefId": "B",
+            "mappings": [
+              {
+                "fieldName": "color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
       "transparent": false,
       "gridPos": {
         "h": 3,
@@ -1825,7 +1850,7 @@
       "id": 19,
       "type": "bargauge",
       "title": "Asset states",
-      "description": "Assets by state. Hidden includes the video half of every live photo; locked counts every user's locked folder. Offline assets are missing on disk and turn red.",
+      "description": "The API key owner's assets by state. Hidden are mostly the video halves of live photos; locked counts every user's locked folder. Offline assets are missing on disk and turn red.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -2069,7 +2094,7 @@
       "id": 21,
       "type": "gauge",
       "title": "Organized",
-      "description": "Share of assets with a location, share of assets in at least one album, and share of recognized people with a name.",
+      "description": "Share of the API key owner's assets with a location, share of them in at least one album, and share of recognized people with a name.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -2080,7 +2105,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max(immich_assets_geotagged) / clamp_min(sum(max by (type) (immich_assets)), 1)",
+          "expr": "max(immich_assets_geotagged) / clamp_min((max(immich_assets_visible) or sum(max by (type) (immich_assets))), 1)",
           "instant": true,
           "legendFormat": "Geotagged",
           "range": false,
@@ -2091,7 +2116,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "1 - max(immich_assets_not_in_album) / clamp_min(sum(max by (type) (immich_assets)), 1)",
+          "expr": "1 - max(immich_assets_not_in_album) / clamp_min((max(immich_assets_visible) or sum(max by (type) (immich_assets))), 1)",
           "instant": true,
           "legendFormat": "In an album",
           "range": false,
@@ -2336,7 +2361,7 @@
       "id": 25,
       "type": "stat",
       "title": "Without location",
-      "description": "Assets with no GPS coordinates.",
+      "description": "The API key owner's assets with no GPS coordinates.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -2347,7 +2372,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(max by (type) (immich_assets)) - max(immich_assets_geotagged)",
+          "expr": "(max(immich_assets_visible) or sum(max by (type) (immich_assets))) - max(immich_assets_geotagged)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -5087,8 +5112,8 @@
           },
           "transparent": false,
           "gridPos": {
-            "h": 8,
-            "w": 4,
+            "h": 6,
+            "w": 8,
             "x": 0,
             "y": 55
           }
@@ -5250,9 +5275,9 @@
           },
           "transparent": false,
           "gridPos": {
-            "h": 8,
-            "w": 4,
-            "x": 4,
+            "h": 6,
+            "w": 8,
+            "x": 8,
             "y": 55
           }
         },
@@ -5331,9 +5356,9 @@
           },
           "transparent": false,
           "gridPos": {
-            "h": 8,
-            "w": 4,
-            "x": 8,
+            "h": 6,
+            "w": 8,
+            "x": 16,
             "y": 55
           }
         },
@@ -5341,7 +5366,7 @@
           "id": 62,
           "type": "table",
           "title": "Users",
-          "description": "Assets and storage per user, and how their storage grew over the selected range.",
+          "description": "Assets and storage per user, how their storage grew over the selected range, and their favorites, archive, trash and locked folder.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -5396,13 +5421,58 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
+              "expr": "max by (user) (immich_user_assets_favorite)",
+              "format": "table",
+              "instant": true,
+              "range": false,
+              "refId": "E"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (user) (immich_user_assets_archived)",
+              "format": "table",
+              "instant": true,
+              "range": false,
+              "refId": "F"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (user) (immich_user_assets_trashed)",
+              "format": "table",
+              "instant": true,
+              "range": false,
+              "refId": "G"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (user) (immich_user_assets_locked)",
+              "format": "table",
+              "instant": true,
+              "range": false,
+              "refId": "H"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
               "expr": "max by (user) (immich_user_usage_bytes)",
               "instant": false,
               "legendFormat": "{{user}}",
               "range": true,
-              "refId": "E"
+              "refId": "I"
             }
           ],
+          "interval": "1h",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -5437,7 +5507,7 @@
                 "properties": [
                   {
                     "id": "custom.width",
-                    "value": 80
+                    "value": 100
                   }
                 ]
               },
@@ -5449,7 +5519,7 @@
                 "properties": [
                   {
                     "id": "custom.width",
-                    "value": 70
+                    "value": 100
                   }
                 ]
               },
@@ -5499,7 +5569,7 @@
                   },
                   {
                     "id": "custom.width",
-                    "value": 110
+                    "value": 140
                   },
                   {
                     "id": "color",
@@ -5538,7 +5608,55 @@
                   },
                   {
                     "id": "custom.width",
-                    "value": 90
+                    "value": 110
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Favorites"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 110
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Archived"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 110
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "In trash"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 110
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Locked"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 110
                   }
                 ]
               }
@@ -5566,11 +5684,11 @@
             {
               "filter": {
                 "id": "byRefId",
-                "options": "E"
+                "options": "I"
               },
               "id": "timeSeriesTable",
               "options": {
-                "E": {
+                "I": {
                   "stat": "lastNotNull",
                   "timeField": "Time"
                 }
@@ -5587,19 +5705,27 @@
                   "Time": true
                 },
                 "indexByName": {
-                  "Trend #E": 4,
+                  "Trend #I": 4,
                   "Value #A": 1,
                   "Value #B": 2,
                   "Value #C": 3,
                   "Value #D": 5,
+                  "Value #E": 6,
+                  "Value #F": 7,
+                  "Value #G": 8,
+                  "Value #H": 9,
                   "user": 0
                 },
                 "renameByName": {
-                  "Trend #E": "Growth",
+                  "Trend #I": "Growth",
                   "Value #A": "Photos",
                   "Value #B": "Videos",
                   "Value #C": "Storage",
                   "Value #D": "Quota",
+                  "Value #E": "Favorites",
+                  "Value #F": "Archived",
+                  "Value #G": "In trash",
+                  "Value #H": "Locked",
                   "user": "User"
                 }
               }
@@ -5608,9 +5734,9 @@
           "transparent": false,
           "gridPos": {
             "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 55
+            "w": 24,
+            "x": 0,
+            "y": 61
           }
         }
       ]
@@ -8051,8 +8177,8 @@
         {
           "id": 72,
           "type": "timeseries",
-          "title": "Refresh errors",
-          "description": "Failed exporter refreshes per interval (at least an hour).",
+          "title": "Collector errors",
+          "description": "Exporter collector runs that failed, per interval (at least an hour). A refresh that cannot reach Immich counts once.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -8773,7 +8899,7 @@
           ],
           "transparent": false,
           "gridPos": {
-            "h": 8,
+            "h": 10,
             "w": 12,
             "x": 0,
             "y": 76
@@ -9059,7 +9185,7 @@
           },
           "transparent": false,
           "gridPos": {
-            "h": 8,
+            "h": 10,
             "w": 12,
             "x": 12,
             "y": 76
