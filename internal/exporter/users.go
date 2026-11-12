@@ -33,19 +33,19 @@ type usersSnap struct {
 
 var (
 	// users
-	dUsers       = desc("users", "Number of users by status.", "status")
-	dUsersByRole = desc("users_by_role", "Number of users by role.", "role")
-	dUserPhotos  = desc("user_photos", "Per-user photo count.", "user_id", "user")
-	dUserVideos  = desc("user_videos", "Per-user video count.", "user_id", "user")
-	dUserUsage   = desc("user_usage_bytes", "Per-user total storage usage, in bytes.", "user_id", "user")
-	dUserStorage = desc("user_storage_bytes", "Per-user storage usage by asset type, in bytes.", "user_id", "user", "type")
-	dUserQuota   = desc("user_quota_bytes", "Per-user storage quota in bytes (omitted when unlimited).", "user_id", "user")
-	dUserUnlim   = desc("user_quota_unlimited", "1 if the user has no storage quota (unlimited).", "user_id", "user")
+	dUsers       = groupUsers.desc("users", "Number of users by status.", "status")
+	dUsersByRole = groupUsers.desc("users_by_role", "Number of users by role.", "role")
+	dUserPhotos  = groupUsers.desc("user_photos", "Per-user photo count.", "user_id", "user")
+	dUserVideos  = groupUsers.desc("user_videos", "Per-user video count.", "user_id", "user")
+	dUserUsage   = groupUsers.desc("user_usage_bytes", "Per-user total storage usage, in bytes.", "user_id", "user")
+	dUserStorage = groupUsers.desc("user_storage_bytes", "Per-user storage usage by asset type, in bytes.", "user_id", "user", "type")
+	dUserQuota   = groupUsers.desc("user_quota_bytes", "Per-user storage quota in bytes (omitted when unlimited).", "user_id", "user")
+	dUserUnlim   = groupUsers.desc("user_quota_unlimited", "1 if the user has no storage quota (unlimited).", "user_id", "user")
 
-	dUserFavorite = desc("user_assets_favorite", "Per-user favourited assets (admin).", "user_id", "user")
-	dUserArchived = desc("user_assets_archived", "Per-user archived assets (admin).", "user_id", "user")
-	dUserTrashed  = desc("user_assets_trashed", "Per-user assets in the trash (admin).", "user_id", "user")
-	dUserLocked   = desc("user_assets_locked", "Per-user assets in the PIN-locked folder (admin).", "user_id", "user")
+	dUserFavorite = groupUsers.desc("user_assets_favorite", "Per-user favourited assets (admin).", "user_id", "user")
+	dUserArchived = groupUsers.desc("user_assets_archived", "Per-user archived assets (admin).", "user_id", "user")
+	dUserTrashed  = groupUsers.desc("user_assets_trashed", "Per-user assets in the trash (admin).", "user_id", "user")
+	dUserLocked   = groupUsers.desc("user_assets_locked", "Per-user assets in the PIN-locked folder (admin).", "user_id", "user")
 )
 
 func (p *poller) collectUsers(ctx context.Context, s *snapshot) error {

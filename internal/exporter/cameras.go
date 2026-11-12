@@ -14,12 +14,12 @@ type camerasSnap struct {
 
 var (
 	// cameras / EXIF
-	dCameraMakes   = desc("camera_makes", "Number of distinct camera makes in the library.")
-	dCameraModels  = desc("camera_models", "Number of distinct camera models in the library.")
-	dLenses        = desc("lenses", "Number of distinct lens models in the library.")
-	dAssetsByMake  = desc("assets_by_camera_make", "Assets per camera make.", "make")
-	dAssetsByModel = desc("assets_by_camera_model", "Assets per camera model.", "model")
-	dAssetsByLens  = desc("assets_by_lens", "Assets per lens model.", "lens")
+	dCameraMakes   = groupCameras.desc("camera_makes", "Number of distinct camera makes in the library.")
+	dCameraModels  = groupCameras.desc("camera_models", "Number of distinct camera models in the library.")
+	dLenses        = groupCameras.desc("lenses", "Number of distinct lens models in the library.")
+	dAssetsByMake  = groupCameras.desc("assets_by_camera_make", "Assets per camera make.", "make")
+	dAssetsByModel = groupCameras.desc("assets_by_camera_model", "Assets per camera model.", "model")
+	dAssetsByLens  = groupCameras.desc("assets_by_lens", "Assets per lens model.", "lens")
 )
 
 func (p *poller) collectCameras(ctx context.Context, s *snapshot) error {

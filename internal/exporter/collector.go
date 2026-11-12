@@ -98,28 +98,55 @@ func newSnapshot() *snapshot {
 	}
 }
 
-// allDescs is filled by desc() as each descriptor variable is initialized, so
-// Describe can never fall out of sync with the declarations below.
-var allDescs []*prometheus.Desc
+// group heads a section of the metrics reference in docs/metrics.md.
+type group string
 
-func desc(name, help string, labels ...string) *prometheus.Desc {
-	d := prometheus.NewDesc(prometheus.BuildFQName(ns, "", name), help, labels, nil)
-	allDescs = append(allDescs, d)
-	return d
+const (
+	groupExporter group = "Exporter health"
+	groupServer   group = "Server"
+	groupUpkeep   group = "Integrity checks and backups"
+	groupAssets   group = "Assets"
+	groupCameras  group = "Cameras"
+	groupPlaces   group = "Places"
+	groupPeople   group = "People"
+	groupUsers    group = "Users"
+	groupAlbums   group = "Albums and sharing"
+	groupLibrary  group = "Library extras"
+	groupJobs     group = "Jobs"
+)
+
+type metric struct {
+	group      group
+	name, help string
+	labels     []string
+}
+
+// allDescs and metrics are filled by desc() as each descriptor variable is initialized, so neither Describe nor the
+// metrics reference can fall out of sync with the declarations.
+var (
+	allDescs []*prometheus.Desc
+	metrics  []metric
+)
+
+func (g group) desc(name, help string, labels ...string) *prometheus.Desc {
+	name = prometheus.BuildFQName(ns, "", name)
+	allDescs = append(allDescs, prometheus.NewDesc(name, help, labels, nil))
+	metrics = append(metrics, metric{group: g, name: name, help: help, labels: labels})
+	return allDescs[len(allDescs)-1]
 }
 
 // Metric descriptors. Gauges use plural-noun names (no _total, since the values
 // can go down); counters carry _total; byte values carry _bytes.
 var (
 	// exporter self-health
-	dExporterUp        = desc("exporter_up", "1 if the last Immich poll fully succeeded.")
-	dScrapeDuration    = desc("exporter_last_scrape_duration_seconds", "Duration of the last Immich poll, in seconds.")
-	dLastSuccess       = desc("exporter_last_success_timestamp_seconds", "Unix time of the last fully-successful poll.")
-	dScrapeErrors      = desc("exporter_scrape_errors_total", "Cumulative count of failed Immich API calls.")
-	dExporterBuildInfo = desc("exporter_build_info", "Exporter build metadata (value is always 1).", "version", "goversion")
-	dKeyIsAdmin        = desc("key_is_admin", "1 if the configured API key belongs to an admin user (unlocks instance-wide and job metrics).")
-	dCollectorSuccess  = desc("exporter_collector_success", "1 if the collector's latest run got its data; 0 if it failed, including when the API key may not use it or the server lacks it.", "collector")
-	dCollectorDuration = desc("exporter_collector_duration_seconds", "Duration of the collector's latest run, in seconds.", "collector")
+	dExporterUp        = groupExporter.desc("exporter_up", "1 if the last Immich poll fully succeeded.")
+	dScrapeDuration    = groupExporter.desc("exporter_last_scrape_duration_seconds", "Duration of the last Immich poll, in seconds.")
+	dLastSuccess       = groupExporter.desc("exporter_last_success_timestamp_seconds", "Unix time of the last fully-successful poll; absent until one succeeds.")
+	dScrapeErrors      = groupExporter.desc("exporter_scrape_errors_total", "Collector runs that failed since the exporter started. A poll that cannot reach Immich counts once, and a collector the API key may not use does not count.")
+	dExporterBuildInfo = groupExporter.desc("exporter_build_info", "Exporter build metadata (value is always 1).", "version", "goversion")
+	dKeyIsAdmin        = groupExporter.desc("key_is_admin", "1 if the configured API key belongs to an admin user (unlocks instance-wide and job metrics).")
+	dCollectorSuccess  = groupExporter.desc("exporter_collector_success", "1 if the collector's latest run got its data; 0 if it failed, including when the API key may not use it or the server lacks it.", "collector")
+	dCollectorDuration = groupExporter.desc("exporter_collector_duration_seconds", "Duration of the collector's latest run, in seconds.", "collector")
 )
 
 // collector is a prometheus.Collector that emits the latest snapshot fresh on

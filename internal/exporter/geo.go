@@ -33,12 +33,12 @@ type geoSnap struct {
 
 var (
 	// geo
-	dCities          = desc("places_cities", "Number of distinct cities with assets.")
-	dStates          = desc("places_states", "Number of distinct states/provinces with assets.")
-	dCountries       = desc("places_countries", "Number of distinct countries with assets.")
-	dGeotagged       = desc("assets_geotagged", "Number of geotagged assets (from /map/markers).")
-	dAssetsByCountry = desc("assets_by_country", "Geotagged assets per country. lat/lon = centroid of the country's own assets for a coords-mode geomap (no country-name mapping needed; works for every country).", "country", "lat", "lon")
-	dAssetsByCity    = desc("assets_by_city", "Geotagged assets per city. lat/lon = centroid of the city's own assets for a coords-mode geomap.", "city", "country", "lat", "lon")
+	dCities          = groupPlaces.desc("places_cities", "Number of distinct cities with assets.")
+	dStates          = groupPlaces.desc("places_states", "Number of distinct states/provinces with assets.")
+	dCountries       = groupPlaces.desc("places_countries", "Number of distinct countries with assets.")
+	dGeotagged       = groupPlaces.desc("assets_geotagged", "Number of geotagged assets (from /map/markers).")
+	dAssetsByCountry = groupPlaces.desc("assets_by_country", "Geotagged assets per country. lat/lon = centroid of the country's own assets for a coords-mode geomap (no country-name mapping needed; works for every country).", "country", "lat", "lon")
+	dAssetsByCity    = groupPlaces.desc("assets_by_city", "Geotagged assets per city. lat/lon = centroid of the city's own assets for a coords-mode geomap.", "city", "country", "lat", "lon")
 )
 
 func (p *poller) collectGeo(ctx context.Context, s *snapshot) error {

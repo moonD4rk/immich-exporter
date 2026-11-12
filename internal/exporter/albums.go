@@ -26,22 +26,22 @@ type albumsSnap struct {
 
 var (
 	// albums / sharing
-	dAlbums          = desc("albums", "Number of albums by sharing state.", "shared")
-	dAlbumsOwned     = desc("albums_owned", "Number of albums owned by the API key user.")
-	dAlbumsSharedSt  = desc("albums_shared", "Number of albums shared (from /albums/statistics).")
-	dAlbumsNotShared = desc("albums_not_shared", "Number of private (not shared) albums.")
-	dAlbumAssets     = desc("album_assets", "Total asset memberships across all albums (assets may repeat).")
-	dAlbumsEmpty     = desc("albums_empty", "Number of albums containing no assets.")
-	dAlbumsWithLink  = desc("albums_with_shared_link", "Number of albums exposing a public shared link.")
-	dAlbumMax        = desc("album_assets_max", "Asset count of the largest album.")
-	dAlbumAvg        = desc("album_assets_avg", "Average asset count per album.")
-	dTopAlbum        = desc("album_top_assets", "Asset count of the top-N largest albums.", "album_id", "album")
+	dAlbums          = groupAlbums.desc("albums", "Number of albums by sharing state.", "shared")
+	dAlbumsOwned     = groupAlbums.desc("albums_owned", "Number of albums owned by the API key user.")
+	dAlbumsSharedSt  = groupAlbums.desc("albums_shared", "Number of albums shared (from /albums/statistics).")
+	dAlbumsNotShared = groupAlbums.desc("albums_not_shared", "Number of private (not shared) albums.")
+	dAlbumAssets     = groupAlbums.desc("album_assets", "Total asset memberships across all albums (assets may repeat).")
+	dAlbumsEmpty     = groupAlbums.desc("albums_empty", "Number of albums containing no assets.")
+	dAlbumsWithLink  = groupAlbums.desc("albums_with_shared_link", "Number of albums exposing a public shared link.")
+	dAlbumMax        = groupAlbums.desc("album_assets_max", "Asset count of the largest album.")
+	dAlbumAvg        = groupAlbums.desc("album_assets_avg", "Average asset count per album.")
+	dTopAlbum        = groupAlbums.desc("album_top_assets", "Asset count of the top-N largest albums.", "album_id", "album")
 
-	dSharedLinks      = desc("shared_links", "Number of shared links by type.", "type")
-	dSharedLinksExp   = desc("shared_links_expired", "Number of expired shared links still present.")
-	dSharedLinksNever = desc("shared_links_never_expire", "Number of shared links with no expiry.")
-	dSharedLinksPwd   = desc("shared_links_password_protected", "Number of password-protected shared links.")
-	dPartners         = desc("partners", "Number of partner shares by direction (incoming/outgoing).", "direction")
+	dSharedLinks      = groupAlbums.desc("shared_links", "Number of shared links by type.", "type")
+	dSharedLinksExp   = groupAlbums.desc("shared_links_expired", "Number of expired shared links still present.")
+	dSharedLinksNever = groupAlbums.desc("shared_links_never_expire", "Number of shared links with no expiry.")
+	dSharedLinksPwd   = groupAlbums.desc("shared_links_password_protected", "Number of password-protected shared links.")
+	dPartners         = groupAlbums.desc("partners", "Number of partner shares by direction (incoming/outgoing).", "direction")
 )
 
 func (p *poller) collectAlbums(ctx context.Context, s *snapshot) error {

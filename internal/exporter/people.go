@@ -31,12 +31,12 @@ type peoplePage struct {
 
 var (
 	// people
-	dPeople          = desc("people", "Total number of people (including hidden).")
-	dPeopleHidden    = desc("people_hidden", "Number of people marked hidden.")
-	dPeopleNamed     = desc("people_named", "Number of named (identified) people.")
-	dPeopleUnnamed   = desc("people_unnamed", "Number of unnamed people (detected but unlabelled).")
-	dPeopleBirthdate = desc("people_with_birthdate", "Number of people with a birth date set.")
-	dPersonAssets    = desc("person_assets", "Assets per person (top-N by asset count).", "person_id", "person")
+	dPeople          = groupPeople.desc("people", "Total number of people (including hidden).")
+	dPeopleHidden    = groupPeople.desc("people_hidden", "Number of people marked hidden.")
+	dPeopleNamed     = groupPeople.desc("people_named", "Number of named (identified) people.")
+	dPeopleUnnamed   = groupPeople.desc("people_unnamed", "Number of unnamed people (detected but unlabelled).")
+	dPeopleBirthdate = groupPeople.desc("people_with_birthdate", "Number of people with a birth date set.")
+	dPersonAssets    = groupPeople.desc("person_assets", "Assets per person (top-N by asset count).", "person_id", "person")
 )
 
 // peoplePages walks GET /people one page at a time. The first error is yielded

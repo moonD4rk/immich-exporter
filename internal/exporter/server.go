@@ -37,25 +37,25 @@ type serverSnap struct {
 
 var (
 	// server / system
-	dServerUp         = desc("up", "1 if the Immich server answered /server/ping.")
-	dServerInfo       = desc("server_info", "Immich server version and dependency metadata (value is always 1).", "version", "source_ref", "source_commit", "build", "nodejs", "exiftool", "ffmpeg", "imagemagick", "libvips")
-	dServerLicensed   = desc("server_licensed", "1 if the Immich server has an active license.")
-	dLatestVersion    = desc("server_latest_version_info", "Latest Immich release available upstream (value is always 1). Absent while Immich's version check is stale.", "release_version")
-	dUpdateAvailable  = desc("server_update_available", "1 if a newer Immich release is available upstream. Absent while Immich's version check is stale.")
-	dVersionChecked   = desc("server_version_check_timestamp_seconds", "Unix time of Immich's latest upstream version check; older than a week counts as stale.")
-	dVersionInstalled = desc("server_version_installed_timestamp_seconds", "Unix time the running Immich version first started, from the server's version history.")
-	dMaintenance      = desc("server_maintenance_mode", "1 while Immich is in maintenance mode; the exporter then collects nothing else.")
-	dFeature          = desc("server_feature", "Immich server feature flags (1 enabled, 0 disabled).", "feature")
-	dConfigTrashDays  = desc("config_trash_days", "Days assets stay in trash before automatic deletion.")
-	dConfigDelDelay   = desc("config_user_delete_delay_days", "Grace period before a deleted user is purged, in days.")
-	dConfigMinFaces   = desc("config_min_faces", "Minimum faces threshold for facial-recognition clustering.")
-	dInitialized      = desc("server_initialized", "1 if the server has completed first-run initialization.")
-	dOnboarded        = desc("server_onboarded", "1 if admin onboarding has completed.")
+	dServerUp         = groupServer.desc("up", "1 if the Immich server answered /server/ping.")
+	dServerInfo       = groupServer.desc("server_info", "Immich server version and dependency metadata (value is always 1).", "version", "source_ref", "source_commit", "build", "nodejs", "exiftool", "ffmpeg", "imagemagick", "libvips")
+	dServerLicensed   = groupServer.desc("server_licensed", "1 if the Immich server has an active license.")
+	dLatestVersion    = groupServer.desc("server_latest_version_info", "Latest Immich release available upstream (value is always 1). Absent while Immich's version check is stale.", "release_version")
+	dUpdateAvailable  = groupServer.desc("server_update_available", "1 if a newer Immich release is available upstream. Absent while Immich's version check is stale.")
+	dVersionChecked   = groupServer.desc("server_version_check_timestamp_seconds", "Unix time of Immich's latest upstream version check; older than a week counts as stale.")
+	dVersionInstalled = groupServer.desc("server_version_installed_timestamp_seconds", "Unix time the running Immich version first started, from the server's version history.")
+	dMaintenance      = groupServer.desc("server_maintenance_mode", "1 while Immich is in maintenance mode; the exporter then collects nothing else.")
+	dFeature          = groupServer.desc("server_feature", "Immich server feature flags (1 enabled, 0 disabled).", "feature")
+	dConfigTrashDays  = groupServer.desc("config_trash_days", "Days assets stay in trash before automatic deletion.")
+	dConfigDelDelay   = groupServer.desc("config_user_delete_delay_days", "Grace period before a deleted user is purged, in days.")
+	dConfigMinFaces   = groupServer.desc("config_min_faces", "Minimum faces threshold for facial-recognition clustering.")
+	dInitialized      = groupServer.desc("server_initialized", "1 if the server has completed first-run initialization.")
+	dOnboarded        = groupServer.desc("server_onboarded", "1 if admin onboarding has completed.")
 
 	// storage
-	dStorageSize  = desc("storage_size_bytes", "Total capacity of the filesystem backing the upload location.")
-	dStorageUsed  = desc("storage_used_bytes", "Used bytes on the upload filesystem (whole volume, not just Immich).")
-	dStorageAvail = desc("storage_available_bytes", "Free bytes on the upload filesystem.")
+	dStorageSize  = groupServer.desc("storage_size_bytes", "Total capacity of the filesystem backing the upload location.")
+	dStorageUsed  = groupServer.desc("storage_used_bytes", "Used bytes on the upload filesystem (whole volume, not just Immich).")
+	dStorageAvail = groupServer.desc("storage_available_bytes", "Free bytes on the upload filesystem.")
 )
 
 func (p *poller) ping(ctx context.Context) error {

@@ -19,11 +19,11 @@ type opsSnap struct {
 
 var (
 	// integrity checks & database backups (admin)
-	dIntegrity      = desc("integrity_issues", "Files flagged by Immich's latest integrity checks, by report type.", "type")
-	dBackups        = desc("database_backups", "Database backups in Immich's backups folder.")
-	dBackupsSize    = desc("database_backups_size_bytes", "Total size of the database backups in Immich's backups folder.")
-	dBackupLast     = desc("database_backup_last_timestamp_seconds", "Unix time of the newest database backup, read from its file name.")
-	dBackupLastSize = desc("database_backup_last_size_bytes", "Size of the newest database backup, in bytes.")
+	dIntegrity      = groupUpkeep.desc("integrity_issues", "Files flagged by Immich's latest integrity checks, by report type.", "type")
+	dBackups        = groupUpkeep.desc("database_backups", "Database backups in Immich's backups folder.")
+	dBackupsSize    = groupUpkeep.desc("database_backups_size_bytes", "Total size of the database backups in Immich's backups folder.")
+	dBackupLast     = groupUpkeep.desc("database_backup_last_timestamp_seconds", "Unix time of the newest database backup, read from its file name.")
+	dBackupLastSize = groupUpkeep.desc("database_backup_last_size_bytes", "Size of the newest database backup, in bytes.")
 )
 
 // collectIntegrity reads the files Immich's own integrity checks (Immich 3+) flagged on their latest run.

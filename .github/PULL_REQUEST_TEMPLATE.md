@@ -8,6 +8,6 @@
 - [ ] `go vet ./...` passes
 - [ ] `golangci-lint run` passes
 - [ ] `go test -race ./...` passes
-- [ ] New/changed metrics are documented in `docs/metrics.md`
+- [ ] `go generate ./...` leaves `docs/metrics.md` and `grafana/dashboard.json` unchanged
 - [ ] Label cardinality is bounded (respects `TOPN` / `FANOUT_LIMIT` where relevant)
 - [ ] The Immich client remains read-only

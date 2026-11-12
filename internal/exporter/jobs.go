@@ -21,8 +21,8 @@ type jobsSnap struct {
 
 var (
 	// jobs
-	dJobQueue       = desc("job_queue", "Jobs in each queue by state.", "queue", "state")
-	dJobQueuePaused = desc("job_queue_paused", "1 if a job queue is paused.", "queue")
+	dJobQueue       = groupJobs.desc("job_queue", "Jobs in each queue by state.", "queue", "state")
+	dJobQueuePaused = groupJobs.desc("job_queue_paused", "1 if a job queue is paused.", "queue")
 )
 
 // queueCounts is the per-state depth shared by /queues (v2.4.0+) and the legacy
