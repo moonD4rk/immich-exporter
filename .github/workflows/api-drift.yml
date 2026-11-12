@@ -1,0 +1,53 @@
+name: API drift
+
+# Checks every Immich API call the exporter makes against Immich's OpenAPI spec: of the latest release, which users
+# upgrade to, and of the main branch, which shows what the next release changes.
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  pull_request:
+    paths:
+      - internal/**
+      - .github/workflows/api-drift.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openapi:
+    name: immich-${{ matrix.immich }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        immich: [release, main]
+    # Immich's main branch can still change before it ships, so it must not block a pull request.
+    continue-on-error: ${{ matrix.immich == 'main' && github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: fetch Immich's OpenAPI spec
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMMICH: ${{ matrix.immich }}
+        run: |
+          ref=$IMMICH
+          if [[ $ref == release ]]; then ref=$(gh api repos/immich-app/immich/releases/latest --jq .tag_name); fi
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/immich-openapi.json" \
+            "https://raw.githubusercontent.com/immich-app/immich/$ref/open-api/immich-openapi-specs.json"
+          echo "Immich \`$ref\`" >>"$GITHUB_STEP_SUMMARY"
+      - name: check the exporter's API calls
+        env:
+          IMMICH_OPENAPI_SPEC: ${{ runner.temp }}/immich-openapi.json
+        # The grep fails the step if the test was renamed or skipped, which go test alone reports as a pass.
+        run: |
+          go test ./internal/exporter -run '^TestImmichAPIMatchesOpenAPI$' -count=1 -v | tee "$RUNNER_TEMP/drift.log"
+          grep -q -- '--- PASS: TestImmichAPIMatchesOpenAPI' "$RUNNER_TEMP/drift.log"

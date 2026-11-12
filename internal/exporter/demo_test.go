@@ -150,6 +150,7 @@ type demoQueue struct {
 	name              string
 	perAsset, perHour float64 // jobs each upload enqueues, jobs the server finishes per hour
 	workers, failed   float64
+	failedDaysAgo     int // when its jobs failed; 0 for before the month started
 	backlog           float64
 }
 
@@ -162,7 +163,7 @@ func newDemoQueues() []*demoQueue {
 		{name: "facialRecognition", perAsset: 0.6, perHour: 90, workers: 1},
 		{name: "ocr", perAsset: 1, perHour: 38, workers: 1},
 		{name: "duplicateDetection", perAsset: 1, perHour: 1800, workers: 1},
-		{name: "videoConversion", perAsset: 0.07, perHour: 12, workers: 1, failed: 1},
+		{name: "videoConversion", perAsset: 0.07, perHour: 12, workers: 1, failed: 1, failedDaysAgo: demoCardImport},
 		{name: "sidecar"},
 		{name: "library"},
 		{name: "backgroundTask"},
@@ -289,8 +290,11 @@ func (tl *demoTimeline) snapshotAt(t time.Time) *snapshot {
 	demoAlbumsAt(s, home, trip)
 	demoContent(s, trip)
 	for _, q := range tl.queues {
-		active := min(math.Ceil(q.backlog), q.workers)
-		addQueue(s, q.name, false, queueCounts{Active: active, Waiting: max(0, math.Round(q.backlog)-active), Failed: q.failed})
+		active, failed := min(math.Ceil(q.backlog), q.workers), q.failed
+		if t.Before(tl.now.AddDate(0, 0, -q.failedDaysAgo)) && q.failedDaysAgo > 0 {
+			failed = 0 // a clip on the camera card that Immich could not transcode
+		}
+		addQueue(s, q.name, false, queueCounts{Active: active, Waiting: max(0, math.Round(q.backlog)-active), Failed: failed})
 	}
 	return s
 }

@@ -159,9 +159,24 @@ func statusStrip(l *layout) {
 			latest(diskFullIn, "Full in")).override("Full in", fullIn()...)),
 		span(3, count("Queued jobs", "Jobs waiting or delayed across all Immich queues. Spikes after uploads are normal.",
 			`sum(max by (queue, state) (immich_job_queue{state=~"waiting|delayed"}))`, text)),
-		span(3, stat("Failed jobs", "Jobs Immich currently holds as failed, across all queues.",
-			latest(`sum(max by (queue) (immich_job_queue{state="failed"}))`, "")).thresholds(green, at(1, orange))),
+		span(3, failedJobs()),
 	)
+}
+
+// failedJobs is orange only while the count rose in the range: failures stay until cleared, so a threshold never resets.
+func failedJobs() *panel {
+	const failed = `sum(max by (queue) (immich_job_queue{state="failed"}))`
+	const rose = "(" + failed + ` - sum(min by (queue) (min_over_time(immich_job_queue{state="failed"}[$__range:$__interval]))) > 0)`
+	// Grafana 11 and 13 build thresholds from a query differently; a fixed color from a label reads the same on both.
+	color := frame(`label_replace(vector(1), "color", "` + orange + `", "", "") and on () ` + rose +
+		` or label_replace(vector(1), "color", "` + green + `", "", "") unless on () ` + rose)
+	return stat("Failed jobs", "Jobs Immich holds as failed, across all queues. They stay until an admin clears them, "+
+		"so the count is orange only while it has risen during the selected time range.",
+		latest(failed, ""), color).
+		thresholds(green, at(1, orange)).
+		transform(obj{"id": "configFromData", "options": obj{
+			"configRefId": "B", "mappings": []obj{{"fieldName": "color", "handlerKey": "color"}},
+		}})
 }
 
 func library(l *layout) {
@@ -185,8 +200,8 @@ func library(l *layout) {
 	)
 	l.line(9,
 		span(16, assetsByYear()),
-		span(8, bars("Asset states", "Assets by state. Hidden includes the video half of every live photo; locked "+
-			"counts every user's locked folder. Offline assets are missing on disk and turn red.",
+		span(8, bars("Asset states", "The API key owner's assets by state. Hidden are mostly the video halves of live "+
+			"photos; locked counts every user's locked folder. Offline assets are missing on disk and turn red.",
 			latest("max(immich_assets_favorite)", "Favorites"),
 			latest("max(immich_assets_archived)", "Archived"),
 			latest("max(immich_assets_motion)", "Motion photos"),
@@ -201,16 +216,19 @@ func library(l *layout) {
 		span(8, bars("Star ratings", "Rated assets by star rating. Unrated assets are left out so the scale stays readable.",
 			latest(`max by (rating) (immich_assets_by_rating{rating!="unrated"})`, "{{rating}} ★")).
 			color(gold).thresholds(gold)),
-		span(8, rings("Organized", "Share of assets with a location, share of assets in at least one album, "+
-			"and share of recognized people with a name.",
-			latest("max(immich_assets_geotagged) / clamp_min(sum(max by (type) (immich_assets)), 1)", "Geotagged"),
-			latest("1 - max(immich_assets_not_in_album) / clamp_min(sum(max by (type) (immich_assets)), 1)", "In an album"),
+		span(8, rings("Organized", "Share of the API key owner's assets with a location, share of them in at least one "+
+			"album, and share of recognized people with a name.",
+			latest("max(immich_assets_geotagged) / clamp_min("+ownerAssets+", 1)", "Geotagged"),
+			latest("1 - max(immich_assets_not_in_album) / clamp_min("+ownerAssets+", 1)", "In an album"),
 			latest("max(immich_people_named) / clamp_min(max(immich_people), 1)", "People named"))),
 		span(8, timeseries("Library size", "Storage used by the library over time.",
 			seriesStyle{noLegend: true, signed: true, smooth: true},
 			series("max(immich_server_usage_bytes)", "Library")).unit("bytes").color(blue)),
 	)
 }
+
+// ownerAssets is the base of the search-based counts; immich_assets covers every user and stands in before exporter 1.5.
+const ownerAssets = "(max(immich_assets_visible) or sum(max by (type) (immich_assets)))"
 
 func storageByType() *panel {
 	p := newPanel("piechart", "Storage by type", "Bytes used by photos versus videos.",
@@ -251,8 +269,8 @@ func places(l *layout) {
 	// The geotagged share is a ring of Organized, just above.
 	l.line(3,
 		span(6, count("Geotagged assets", "Assets with GPS coordinates.", "max(immich_assets_geotagged)", blue)),
-		span(6, count("Without location", "Assets with no GPS coordinates.",
-			"sum(max by (type) (immich_assets)) - max(immich_assets_geotagged)", text)),
+		span(6, count("Without location", "The API key owner's assets with no GPS coordinates.",
+			ownerAssets+" - max(immich_assets_geotagged)", text)),
 		span(4, count("Countries", "Distinct countries in reverse-geocoded EXIF.", "max(immich_places_countries)", blue)),
 		span(4, count("States / provinces", "Distinct states or provinces.", "max(immich_places_states)", blue)),
 		span(4, count("Cities", "Distinct cities.", "max(immich_places_cities)", blue)),
@@ -375,35 +393,49 @@ func albums(l *layout) {
 }
 
 func users(l *layout) {
-	// Scoped to E: with a single user the table queries look like time series too and would become trends.
+	// Trend last and scoped by refId: merge lets later frames blank it, and one user's table queries would become trends.
 	growth := obj{
-		"id": "timeSeriesTable", "filter": obj{"id": "byRefId", "options": "E"},
-		"options": obj{"E": obj{"timeField": "Time", "stat": "lastNotNull"}},
+		"id": "timeSeriesTable", "filter": obj{"id": "byRefId", "options": "I"},
+		"options": obj{"I": obj{"timeField": "Time", "stat": "lastNotNull"}},
 	}
 	l.section("Users & storage", true)
-	l.line(8,
-		span(4, diskUsage()),
-		span(4, diskSpace()),
-		span(4, grid("Accounts", "Users by status and role.",
+	l.line(6,
+		span(8, diskUsage()),
+		span(8, diskSpace()),
+		span(8, grid("Accounts", "Users by status and role.",
 			latest("max by (status) (immich_users)", "{{status}}"),
 			latest("max by (role) (immich_users_by_role)", "{{role}}s")).opt("orientation", "horizontal")),
-		span(12, table("Users", "Assets and storage per user, and how their storage grew over the selected range.",
+	)
+	l.line(8,
+		span(24, table("Users", "Assets and storage per user, how their storage grew over the selected range, and their "+
+			"favorites, archive, trash and locked folder.",
 			frame("max by (user) (immich_user_photos)"),
 			frame("max by (user) (immich_user_videos)"),
 			frame("max by (user) (immich_user_usage_bytes)"),
 			frame("max by (user) (immich_user_quota_unlimited)"),
+			frame("max by (user) (immich_user_assets_favorite)"),
+			frame("max by (user) (immich_user_assets_archived)"),
+			frame("max by (user) (immich_user_assets_trashed)"),
+			frame("max by (user) (immich_user_assets_locked)"),
 			series("max by (user) (immich_user_usage_bytes)", "{{user}}")).
 			transform(growth, obj{"id": "merge", "options": obj{}}, organize([]string{"Time"},
 				col("user", "User"), col("Value #A", "Photos"), col("Value #B", "Videos"),
-				col("Value #C", "Storage"), col("Trend #E", "Growth"), col("Value #D", "Quota"))).
-			override("Photos", prop("custom.width", 80)).
-			override("Videos", prop("custom.width", 70)).
+				col("Value #C", "Storage"), col("Trend #I", "Growth"), col("Value #D", "Quota"),
+				col("Value #E", "Favorites"), col("Value #F", "Archived"), col("Value #G", "In trash"),
+				col("Value #H", "Locked"))).
+			override("Photos", prop("custom.width", 100)).
+			override("Videos", prop("custom.width", 100)).
 			override("Storage", barCell("bytes")...).
 			override("Growth", prop("custom.cellOptions", obj{"type": "sparkline", "hideValue": true}),
-				prop("custom.width", 110), prop("color", fixed(blue))).
+				prop("custom.width", 140), prop("color", fixed(blue))).
 			override("Quota", prop("mappings", valueMappings(when(0, "Limited", text), when(1, "Unlimited", text))),
-				prop("custom.width", 90)).
-			sortBy("Storage")),
+				prop("custom.width", 110)).
+			override("Favorites", prop("custom.width", 110)).
+			override("Archived", prop("custom.width", 110)).
+			override("In trash", prop("custom.width", 110)).
+			override("Locked", prop("custom.width", 110)).
+			// An hour per point: storage hardly moves faster, and a finer step than the samples draws no line.
+			sortBy("Storage").every("1h")),
 	)
 }
 
@@ -563,7 +595,8 @@ func server(l *layout) {
 			override("Typical", prop("color", fixed(blue))).
 			override("Slowest", prop("color", fixed(text)), prop("custom.fillOpacity", 0),
 				prop("custom.lineStyle", obj{"fill": "dash", "dash": []int{6, 4}}))),
-		span(12, timeseries("Refresh errors", "Failed exporter refreshes per interval (at least an hour).",
+		span(12, timeseries("Collector errors", "Exporter collector runs that failed, per interval (at least an hour). "+
+			"A refresh that cannot reach Immich counts once.",
 			seriesStyle{noLegend: true, bars: true},
 			series("sum(increase(immich_exporter_scrape_errors_total[$__interval]))", "Errors")).color(red).every("1h")),
 	)
@@ -573,7 +606,8 @@ func server(l *layout) {
 		span(12, collectors()),
 	)
 	unsnake := obj{"id": "renameByRegex", "options": obj{"regex": "^(.*)_(.*)$", "renamePattern": "$1 $2"}}
-	l.line(8,
+	// Settings lists eight values, which eight grid rows clip.
+	l.line(10,
 		span(12, stat("Features", "Server features enabled in Immich.",
 			latest("max by (feature) (immich_server_feature)", "{{feature}}")).
 			unit("none").mappings(when(0, "Off", text), when(1, "On", green)).
