@@ -787,7 +787,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max(immich_storage_available_bytes) / (max(deriv(immich_storage_used_bytes[7d])) > 0) or (max(immich_storage_available_bytes) + Inf)",
+          "expr": "max(immich_storage_available_bytes) / (deriv(max(immich_storage_used_bytes)[7d:1h]) > 0) or (max(immich_storage_available_bytes) + Inf)",
           "instant": true,
           "legendFormat": "Full in",
           "range": false,
@@ -5166,7 +5166,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "max(immich_storage_available_bytes) / (max(deriv(immich_storage_used_bytes[7d])) > 0) or (max(immich_storage_available_bytes) + Inf)",
+              "expr": "max(immich_storage_available_bytes) / (deriv(max(immich_storage_used_bytes)[7d:1h]) > 0) or (max(immich_storage_available_bytes) + Inf)",
               "instant": true,
               "legendFormat": "Full in",
               "range": false,

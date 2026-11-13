@@ -114,15 +114,16 @@ groups:
           description: Only {{ $value | humanizePercentage }} of the volume holding the library is free on {{ $labels.instance }}.
 
       - alert: ImmichStorageFillingUp
+        # Aggregate before forecasting: a restarted exporter's new series would read its first minutes as the week.
         expr: >-
-          predict_linear(immich_storage_available_bytes[7d], 30 * 24 * 3600) < 0
-          and immich_storage_available_bytes / immich_storage_size_bytes < 0.25
+          predict_linear(max(immich_storage_available_bytes)[7d:1h], 30 * 24 * 3600) < 0
+          and max(immich_storage_available_bytes) / max(immich_storage_size_bytes) < 0.25
         for: 6h
         labels:
           severity: warning
         annotations:
           summary: Immich's library volume fills up within 30 days at the past week's rate
-          description: The volume holding the library on {{ $labels.instance }} is under 25% free and shrinking.
+          description: The volume holding the library is under 25% free and shrinking.
 
       - alert: ImmichAssetsOffline
         expr: immich_assets_offline > 0
