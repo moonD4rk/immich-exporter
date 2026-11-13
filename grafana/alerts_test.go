@@ -12,6 +12,8 @@ import (
 
 var measuresChange = regexp.MustCompile(`\b(?:delta|idelta|increase|rate|irate|deriv|predict_linear|changes|resets)\(|\boffset\b`)
 
+var forecastsOneSeries = regexp.MustCompile(`\b(?:deriv|predict_linear)\(\s*[a-zA-Z_:][a-zA-Z0-9_:]*\s*(?:\{[^}]*\})?\s*\[`)
+
 type alertRule struct {
 	Alert       string            `yaml:"alert"`
 	Expr        string            `yaml:"expr"`
@@ -114,5 +116,39 @@ func TestChangeAlertsStaySilentOnSteadyData(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A restarted exporter is a new series in Kubernetes: a forecast over it alone reads minutes as the whole window.
+func TestForecastsReadAggregatedSeries(t *testing.T) {
+	const fix = "forecasts from one series; aggregate first, as in deriv(max(m)[7d:1h])"
+	for _, r := range loadAlertRules(t) {
+		if forecastsOneSeries.MatchString(withoutStrings(r.Expr)) {
+			t.Errorf("alert %s %s", r.Alert, fix)
+		}
+	}
+	_, qs := loadQueries(t)
+	for i := range qs {
+		if forecastsOneSeries.MatchString(withoutStrings(qs[i].expr)) {
+			t.Errorf("%s %s", qs[i].name, fix)
+		}
+	}
+}
+
+func TestForecastsOneSeries(t *testing.T) {
+	cases := []struct {
+		expr string
+		want bool
+	}{
+		{`predict_linear(immich_storage_available_bytes[7d], 30 * 24 * 3600) < 0`, true},
+		{`max(deriv(immich_storage_used_bytes{instance=""}[7d]))`, true},
+		{`predict_linear(max(immich_storage_available_bytes)[7d:1h], 30 * 24 * 3600) < 0`, false},
+		{`deriv(max(immich_storage_used_bytes)[7d:1h]) > 0`, false},
+		{`max by (queue) (immich_job_queue offset 1h)`, false},
+	}
+	for _, c := range cases {
+		if got := forecastsOneSeries.MatchString(c.expr); got != c.want {
+			t.Errorf("forecastsOneSeries(%q) = %v, want %v", c.expr, got, c.want)
+		}
 	}
 }

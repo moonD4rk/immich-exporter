@@ -443,7 +443,8 @@ const (
 	diskUsed = "max(immich_storage_used_bytes) / clamp_min(max(immich_storage_size_bytes), 1)"
 	// diskFullIn is the seconds until the volume fills up at its average growth over the last week, and Inf while it
 	// isn't growing; without storage metrics it stays empty rather than claiming the volume isn't filling.
-	diskFullIn = "max(immich_storage_available_bytes) / (max(deriv(immich_storage_used_bytes[7d])) > 0)" +
+	// The growth is read from the aggregate, which a restarted exporter's new series doesn't reset.
+	diskFullIn = "max(immich_storage_available_bytes) / (deriv(max(immich_storage_used_bytes)[7d:1h]) > 0)" +
 		" or (max(immich_storage_available_bytes) + Inf)"
 )
 
