@@ -27,7 +27,7 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'grafana-com' || '' }}
     steps:
       - uses: actions/checkout@v7
-      - uses: moond4rk/publish-grafana@d5260fc987b48fabfba227721240ff611c3e603b # main, before v1.0.0
+      - uses: moond4rk/publish-grafana@v1
         with:
           token: ${{ secrets.GRAFANA_COM_TOKEN }}
           dashboard-id: 26030
