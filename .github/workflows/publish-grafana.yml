@@ -1,0 +1,26 @@
+name: grafana.com
+
+on:
+  pull_request:
+    paths:
+      - grafana/dashboard.json
+      - .github/workflows/publish-grafana.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-grafana-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Preview the listing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # A pull request only previews: the step publishes nothing and needs no token
+      - uses: moonD4rk/publish-grafana@d5260fc987b48fabfba227721240ff611c3e603b # main, before v1.0.0
+        with:
+          dashboard-id: 26030
+          dashboard-file: grafana/dashboard.json
