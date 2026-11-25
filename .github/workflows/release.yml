@@ -1,7 +1,7 @@
 name: release
 
 # Manual release: trigger from the Actions tab and type the version (e.g. v1.0.0).
-# The workflow creates and pushes that tag, then builds binaries and the image.
+# The workflow creates and pushes that tag, builds binaries and the image, then publishes the dashboard to grafana.com.
 # image-only rebuilds the image of a release whose tag and binaries already exist.
 on:
   workflow_dispatch:
@@ -105,3 +105,12 @@ jobs:
           images=()
           for tag in ${TAGS}; do images+=("${tag}@${DIGEST}"); done
           cosign sign --yes "${images[@]}"
+
+  # Last, and not for a pre-release: the listing must not offer a dashboard whose exporter is not out yet.
+  dashboard:
+    needs: [binaries, image]
+    if: ${{ !inputs.image-only && !contains(inputs.version, '-') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-grafana.yml
+    secrets: inherit

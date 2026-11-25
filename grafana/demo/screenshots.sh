@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Renders the dashboard over the synthetic demo library (internal/exporter/demo_test.go) into docs/images, in the
-# dark theme as dashboard-<band>.webp and the light one as dashboard-<band>-light.webp.
+# dark theme as dashboard-<band>.webp and the light one as dashboard-<band>-light.webp. grafana.com takes no
+# WebP, so the dark ones also go to grafana/screenshots as PNG, numbered in the order its page shows them.
 # Needs Docker, Go, jq and ImageMagick. KEEP=1 leaves Grafana running on http://127.0.0.1:13001 (admin/admin).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -57,8 +58,10 @@ bands=(
   "more|More|"
 )
 controls='&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks'
+n=0
 for band in "${bands[@]}"; do
   IFS='|' read -r name from to <<<"$band"
+  n=$((n + 1))
   read -r first end < <(jq -r --arg from "$from" --arg to "$to" '
     def edge($title; $default): [.panels[] | select(.type == "row" and .title == $title) | .gridPos.y][0] // $default;
     [edge($from; 0), edge($to; [.panels[] | .gridPos.y + .gridPos.h] | max)] | @tsv' "$tmp/expanded.json")
@@ -71,6 +74,11 @@ for band in "${bands[@]}"; do
     magick "$tmp/$name.png" -gravity south -chop "0x$((64 * scale))" -fuzz 2% -trim +repage \
       -bordercolor "$bg" -border $((16 * scale)) -strip -quality 100 -define webp:lossless=true -define webp:method=6 "$out"
     echo "$out"
+    if [[ $theme == dark ]]; then
+      listing=$(printf 'grafana/screenshots/%02d-%s.png' "$n" "$name")
+      magick "$out" -resize "${width}x" -strip -define png:exclude-chunks=date,time "$listing"
+      echo "$listing"
+    fi
   done
 done
 if [[ ${KEEP:-} == 1 ]]; then echo "Grafana: http://127.0.0.1:13001/d/immich-library (admin/admin)"; fi

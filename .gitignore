@@ -22,6 +22,7 @@
 !*.sh
 !*.webp
 !*.svg
+!/grafana/screenshots/*.png
 
 # --- Denylist: never track (overrides the allowlist above) ---
 # Compiled binary, test & coverage artifacts
