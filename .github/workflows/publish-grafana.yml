@@ -1,0 +1,36 @@
+name: grafana.com
+
+# A pull request previews the listing; release.yml and a manual run on main publish it.
+on:
+  pull_request:
+    paths:
+      - grafana/dashboard.json
+      - grafana/README.md
+      - grafana/screenshots/**
+      - .github/workflows/publish-grafana.yml
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A publish must never be cancelled midway; only a preview gives way to a newer one.
+concurrency:
+  group: publish-grafana-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  listing:
+    name: ${{ github.event_name == 'pull_request' && 'Preview the listing' || 'Publish the listing' }}
+    runs-on: ubuntu-latest
+    # Only main can use the environment that holds the token; a pull request gets none and so previews.
+    environment: ${{ github.event_name != 'pull_request' && 'grafana-com' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: moond4rk/publish-grafana@d5260fc987b48fabfba227721240ff611c3e603b # main, before v1.0.0
+        with:
+          token: ${{ secrets.GRAFANA_COM_TOKEN }}
+          dashboard-id: 26030
+          dashboard-file: grafana/dashboard.json
+          readme-file: grafana/README.md
+          screenshots: grafana/screenshots/*.png

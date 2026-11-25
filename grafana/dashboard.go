@@ -48,8 +48,8 @@ func definition() obj {
 			"builtIn": 1, "datasource": obj{"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true,
 			"iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard",
 		}}},
-		"description": "Immich library content from immich-exporter (https://github.com/moond4rk/immich-exporter): " +
-			"assets, cameras and EXIF, geography, people, storage, albums and sharing, jobs and server health.",
+		"description": "What an Immich library holds: assets, storage, people, places, cameras, albums, jobs, backups " +
+			"and integrity checks. Uses immich-exporter with Prometheus or VictoriaMetrics.",
 		"editable":             true,
 		"fiscalYearStartMonth": 0,
 		"graphTooltip":         1,

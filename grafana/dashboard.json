@@ -93,7 +93,7 @@
       }
     ]
   },
-  "description": "Immich library content from immich-exporter (https://github.com/moond4rk/immich-exporter): assets, cameras and EXIF, geography, people, storage, albums and sharing, jobs and server health.",
+  "description": "What an Immich library holds: assets, storage, people, places, cameras, albums, jobs, backups and integrity checks. Uses immich-exporter with Prometheus or VictoriaMetrics.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,

@@ -60,9 +60,9 @@ A query on a metric the poll mock doesn't produce yet needs it in `internal/expo
 
 The `datasource` variable's current value is `${DS_PROMETHEUS}` with text `Prometheus`, so an import uses the datasource picked in its dialog and file provisioning falls back to the one named Prometheus; `go test ./grafana` checks that the input stays referenced.
 
-After a visible dashboard change, refresh the README screenshots with `grafana/demo/screenshots.sh` (needs Docker, Go, jq and ImageMagick). It renders the dashboard in the dark and light themes over a synthetic library from `internal/exporter/demo_test.go`, so no real data is involved, and `KEEP=1` leaves Grafana running on http://127.0.0.1:13001 to look around. A new metric needs a demo value too, or `TestDemoCoversEveryMetric` fails.
+After a visible dashboard change, refresh the screenshots with `grafana/demo/screenshots.sh` (needs Docker, Go, jq and ImageMagick). It renders the dashboard in the dark and light themes over a synthetic library from `internal/exporter/demo_test.go`, so no real data is involved, and `KEEP=1` leaves Grafana running on http://127.0.0.1:13001 to look around. The README shows the WebP files in `docs/images/`; grafana.com takes no WebP, so the script also writes the dark ones to `grafana/screenshots/` as PNG. A new metric needs a demo value too, or `TestDemoCoversEveryMetric` fails.
 
-The dashboard is also published as [grafana.com dashboard 26030](https://grafana.com/grafana/dashboards/26030). After a release that changes `grafana/dashboard.json`, the maintainer uploads it there as a new revision, with the refreshed screenshots.
+The dashboard is also published as [grafana.com dashboard 26030](https://grafana.com/grafana/dashboards/26030). A release keeps that page equal to the repository with [publish-grafana](https://github.com/moond4rk/publish-grafana): `grafana/dashboard.json` becomes a new revision when it changed, `grafana/README.md` the page's README and `grafana/screenshots/` its screenshots. A pull request that touches one of them shows what the next release would publish, in the job summary of its `grafana.com` check.
 
 ## Commit messages
 
